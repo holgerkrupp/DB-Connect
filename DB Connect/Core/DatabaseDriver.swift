@@ -128,6 +128,13 @@ nonisolated protocol DatabaseDriver: Sendable {
 nonisolated protocol DatabaseSession: Sendable {
     var capabilities: DriverCapabilities { get }
 
+    /// Databases the account can see. Empty when the driver has no such concept (SQLite).
+    func databases() async throws -> [String]
+    /// Switch the active database without reconnecting. Throws if the driver cannot.
+    func use(database: String) async throws
+    /// The database currently in use, if any.
+    var currentDatabase: String? { get async }
+
     func tables() async throws -> [TableDescriptor]
     func describe(table: String, schema: String?) async throws -> TableDescriptor
     func fetch(_ request: RowRequest) async throws -> ResultSet
@@ -146,6 +153,17 @@ nonisolated protocol DatabaseSession: Sendable {
 }
 
 nonisolated extension DatabaseSession {
+    /// Drivers with a single fixed database (SQLite, PostgREST) inherit these.
+    func databases() async throws -> [String] { [] }
+
+    func use(database: String) async throws {
+        throw DatabaseError.unsupported("This connection cannot switch databases.")
+    }
+
+    var currentDatabase: String? {
+        get async { nil }
+    }
+
     /// Shared implementation for SQL drivers: build one parameterized statement per mutation.
     func sqlPreview(_ mutations: [RowMutation], to table: TableDescriptor, dialect: SQLDialect) throws -> [String] {
         try mutations.map { mutation in

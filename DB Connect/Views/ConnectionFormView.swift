@@ -25,6 +25,7 @@ struct ConnectionFormView: View {
     @State private var showsCertificateImporter = false
     @State private var errorMessage: String?
     @State private var showsFileImporter = false
+    @State private var hasStoredSecret = false
 
     private var tlsFooter: String {
         switch tlsMode {
@@ -44,9 +45,10 @@ struct ConnectionFormView: View {
 
     private var canSave: Bool {
         switch style {
+        // The database is optional for servers: connect first, then pick one from the list.
         case .file: !database.isEmpty
-        case .server: !host.isEmpty && !database.isEmpty
-        case .httpEndpoint: !host.isEmpty && !password.isEmpty
+        case .server: !host.isEmpty
+        case .httpEndpoint: !host.isEmpty && (!password.isEmpty || hasStoredSecret)
         }
     }
 
@@ -74,14 +76,24 @@ struct ConnectionFormView: View {
                     }
 
                 case .server:
-                    Section("Server") {
+                    Section {
                         TextField("Host", text: $host)
                         TextField("Port", value: $port, format: .number.grouping(.never))
-                        TextField("Database", text: $database)
+                        TextField("Database (optional)", text: $database)
+                    } header: {
+                        Text("Server")
+                    } footer: {
+                        Text("Leave the database blank to choose one after connecting.")
                     }
-                    Section("Credentials") {
+                    Section {
                         TextField("Username", text: $username)
-                        SecureField("Password", text: $password)
+                        SecureField(hasStoredSecret ? "Password (unchanged)" : "Password", text: $password)
+                    } header: {
+                        Text("Credentials")
+                    } footer: {
+                        if hasStoredSecret {
+                            Text("A password is stored in your iCloud Keychain. Leave this blank to keep it.")
+                        }
                     }
                     Section {
                         Picker("Encryption", selection: $tlsMode) {
@@ -131,11 +143,13 @@ struct ConnectionFormView: View {
                         Text("For example https://abcdefgh.supabase.co — the /rest/v1 path is added automatically.")
                     }
                     Section {
-                        SecureField("API Key", text: $password)
+                        SecureField(hasStoredSecret ? "API Key (unchanged)" : "API Key", text: $password)
                     } header: {
                         Text("Credentials")
                     } footer: {
-                        Text("Use the anon or service role key. It is stored in your iCloud Keychain, never in the synced database.")
+                        Text(hasStoredSecret
+                             ? "A key is stored in your iCloud Keychain. Leave this blank to keep it."
+                             : "Use the anon or service role key. It is stored in your iCloud Keychain, never in the synced database.")
                     }
                 }
 
@@ -236,6 +250,9 @@ struct ConnectionFormView: View {
         tlsMode = TLSMode(rawValue: existing.tlsMode) ?? .required
         certificatePEM = existing.pinnedCertificatePEM ?? ""
         certificateFingerprint = existing.certificateFingerprint
+        // Never read the secret into the field — only report that one exists, so an edit
+        // cannot accidentally round-trip a password through the UI.
+        hasStoredSecret = (try? KeychainSecretStore().secret(for: existing.id)) as? Secret != nil
     }
 
     private func save() {

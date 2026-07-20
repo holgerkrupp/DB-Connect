@@ -31,7 +31,8 @@ nonisolated struct MySQLDriver: DatabaseDriver {
 
 actor MySQLSession: DatabaseSession {
     private var connection: MySQLConnection?
-    private let database: String
+    /// Mutable: `use(database:)` switches it without reconnecting.
+    private var database: String
     private let logger = Logger(label: "de.holgerkrupp.DB-Connect.mysql")
     nonisolated let capabilities: DriverCapabilities
 
@@ -82,21 +83,68 @@ actor MySQLSession: DatabaseSession {
         }
     }
 
-    /// Turn the two failures people actually hit into something actionable.
+    /// Turn the failures people actually hit into something actionable.
+    ///
+    /// The server's own message is always preserved: on "Access denied" MySQL names the host it
+    /// saw the connection arrive from, which is the single most useful detail for fixing a grant
+    /// — and an earlier version of this method discarded it.
     private static func explain(_ error: Error) -> String {
         let text = String(describing: error)
+        let server = serverMessage(in: text)
+
         if text.contains("caching_sha2_password") || text.contains("Auth plugin") {
-            return "The server requires caching_sha2_password (MySQL 8 default). Enable TLS for this connection and try again."
+            return "The server requires caching_sha2_password (MySQL 8 default). Enable TLS for this connection and try again.\n\n\(server)"
         }
         if text.contains("Access denied") {
-            return "Access denied — check the username, password and that this host may connect."
+            return """
+                Access denied. Check the password, and that the account is allowed to connect from \
+                this network — the host shown below is the one the server saw.
+
+                \(server)
+                """
         }
         return (error as? LocalizedError)?.errorDescription ?? text
+    }
+
+    /// Pull "Server error: …" out of MySQLNIO's wrapper, falling back to the whole description.
+    private static func serverMessage(in text: String) -> String {
+        guard let range = text.range(of: "Server error: ") else { return text }
+        return String(text[range.upperBound...])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"() "))
     }
 
     func close() async {
         try? await connection?.close().get()
         connection = nil
+    }
+
+    // MARK: - Databases
+
+    /// Only the databases this account can actually see — MySQL already filters `SHOW DATABASES`
+    /// by privilege, so no extra work is needed to hide the rest.
+    func databases() async throws -> [String] {
+        let result = try await runQuery(Statement(
+            """
+            SELECT SCHEMA_NAME FROM information_schema.SCHEMATA
+            WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
+            ORDER BY SCHEMA_NAME
+            """
+        ))
+        return result.rows.compactMap {
+            if case .text(let name) = $0[0] { return name }
+            return nil
+        }
+    }
+
+    var currentDatabase: String? {
+        get async { database.isEmpty ? nil : database }
+    }
+
+    func use(database newDatabase: String) async throws {
+        // USE takes no parameters, so the name must be quoted instead of bound.
+        let quoted = try SQLIdentifier.quote(newDatabase, style: .backtick)
+        _ = try await runQuery(Statement("USE \(quoted)"))
+        database = newDatabase
     }
 
     // MARK: - Introspection
@@ -371,7 +419,15 @@ actor MySQLSession: DatabaseSession {
         case .float, .double:
             return data.double.map { .double($0) } ?? .null
         case .decimal, .newdecimal:
-            return data.string.map { .text($0) } ?? .null
+            // MySQLNIO's `string` accessor returns nil for NEWDECIMAL, so going through it
+            // silently produced NULL for every DECIMAL column. The wire format is ASCII digits,
+            // so read the buffer directly — that also keeps the exact precision, which is the
+            // whole reason DECIMAL is not routed through Double.
+            if var buffer = data.buffer, let text = buffer.readString(length: buffer.readableBytes) {
+                return .text(text)
+            }
+            // Better an approximate number than a lost value, if the buffer is ever absent.
+            return data.double.map { .double($0) } ?? .null
         case .date, .datetime, .timestamp:
             if let date = data.date { return .date(date) }
             return data.string.map { .text($0) } ?? .null

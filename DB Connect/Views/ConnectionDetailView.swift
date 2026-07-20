@@ -15,6 +15,10 @@ struct ConnectionDetailView: View {
     @State private var selectedTable: TableDescriptor?
     @State private var mode: Mode = .tables
     @State private var connectionError: String?
+    @State private var databases: [String] = []
+    @State private var activeDatabase: String?
+    @State private var isSwitching = false
+    @State private var showsEditor = false
 
     var body: some View {
         Group {
@@ -33,6 +37,27 @@ struct ConnectionDetailView: View {
             }
         }
         .navigationTitle(connection.name)
+        .navigationSubtitle(activeDatabase ?? "")
+        .sheet(isPresented: $showsEditor) {
+            ConnectionFormView(existing: connection)
+        }
+        .toolbar {
+            if !databases.isEmpty {
+                ToolbarItem {
+                    Picker("Database", selection: databaseBinding) {
+                        ForEach(databases, id: \.self) { name in
+                            Text(name).tag(Optional(name))
+                        }
+                    }
+                    .disabled(isSwitching)
+                }
+            }
+            ToolbarItem {
+                Button("Edit Connection", systemImage: "slider.horizontal.3") {
+                    showsEditor = true
+                }
+            }
+        }
         .task { await connect() }
         .onDisappear {
             let closing = session
@@ -70,7 +95,17 @@ struct ConnectionDetailView: View {
         }
     }
 
-    private func connect() async {
+    private var databaseBinding: Binding<String?> {
+        Binding(
+            get: { activeDatabase },
+            set: { newValue in
+                guard let newValue, newValue != activeDatabase else { return }
+                Task { await switchDatabase(to: newValue) }
+            }
+        )
+    }
+
+    private func connect(overrideDatabase: String? = nil) async {
         connectionError = nil
         guard let driver = DriverRegistry.driver(for: connection.driverID) else {
             connectionError = "Unknown driver “\(connection.driverID)”."
@@ -80,10 +115,47 @@ struct ConnectionDetailView: View {
         do {
             let secret = try KeychainSecretStore().secret(for: connection.id)
             restoreFileAccessIfNeeded()
-            let newSession = try await driver.connect(config: connection.config, secret: secret)
+
+            var config = connection.config
+            if let overrideDatabase { config.database = overrideDatabase }
+
+            let newSession = try await driver.connect(config: config, secret: secret)
             session = newSession
+            activeDatabase = await newSession.currentDatabase
+            databases = (try? await newSession.databases()) ?? []
+
+            // Connecting without a database is legitimate — the user picks one from the list.
+            if activeDatabase == nil, let first = databases.first, config.database.isEmpty {
+                await switchDatabase(to: first)
+                return
+            }
+
             tables = try await newSession.tables()
-            if selectedTable == nil { selectedTable = tables.first }
+            selectedTable = tables.first
+        } catch {
+            connectionError = error.localizedDescription
+        }
+    }
+
+    /// Switch in-session where the driver allows it, otherwise reconnect.
+    ///
+    /// MySQL can `USE` another database on the open connection; PostgreSQL binds a connection to
+    /// one database for its lifetime, so reconnecting is the only correct route there.
+    private func switchDatabase(to name: String) async {
+        guard let session else { return }
+        isSwitching = true
+        defer { isSwitching = false }
+
+        do {
+            try await session.use(database: name)
+            activeDatabase = name
+            tables = try await session.tables()
+            selectedTable = tables.first
+        } catch DatabaseError.unsupported {
+            let closing = session
+            self.session = nil
+            await closing.close()
+            await connect(overrideDatabase: name)
         } catch {
             connectionError = error.localizedDescription
         }

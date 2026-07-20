@@ -8,6 +8,7 @@ struct ContentView: View {
 
     @State private var selection: SidebarItem?
     @State private var showsNewConnection = false
+    @State private var editingConnection: Connection?
 
     /// The sidebar mixes connections with the monitors section, so selection needs one type.
     enum SidebarItem: Hashable {
@@ -22,6 +23,24 @@ struct ContentView: View {
                     ForEach(connections) { connection in
                         ConnectionRow(connection: connection)
                             .tag(SidebarItem.connection(connection))
+                            .contextMenu {
+                                Button("Edit…", systemImage: "pencil") {
+                                    editingConnection = connection
+                                }
+                                Button("Duplicate", systemImage: "plus.square.on.square") {
+                                    duplicate(connection)
+                                }
+                                Divider()
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    delete(connection)
+                                }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button("Edit", systemImage: "pencil") {
+                                    editingConnection = connection
+                                }
+                                .tint(.blue)
+                            }
                     }
                     .onDelete(perform: deleteConnections)
                 }
@@ -60,6 +79,36 @@ struct ContentView: View {
         .sheet(isPresented: $showsNewConnection) {
             ConnectionFormView()
         }
+        .sheet(item: $editingConnection) { connection in
+            ConnectionFormView(existing: connection)
+        }
+    }
+
+    /// Copy the configuration but not the secret — a duplicate is usually a different account,
+    /// and silently cloning credentials into a second Keychain entry would be surprising.
+    private func duplicate(_ connection: Connection) {
+        let copy = Connection(name: "\(connection.name) copy", driverID: connection.driverID)
+        copy.host = connection.host
+        copy.port = connection.port
+        copy.database = connection.database
+        copy.username = connection.username
+        copy.tlsMode = connection.tlsMode
+        copy.pinnedCertificatePEM = connection.pinnedCertificatePEM
+        copy.certificateFingerprint = connection.certificateFingerprint
+        copy.isReadOnly = connection.isReadOnly
+        copy.sortOrder = connection.sortOrder + 1
+        modelContext.insert(copy)
+        try? modelContext.save()
+        editingConnection = copy
+    }
+
+    private func delete(_ connection: Connection) {
+        if case .connection(let selected) = selection, selected.id == connection.id {
+            selection = nil
+        }
+        try? KeychainSecretStore().delete(for: connection.id)
+        modelContext.delete(connection)
+        try? modelContext.save()
     }
 
     private func deleteConnections(at offsets: IndexSet) {

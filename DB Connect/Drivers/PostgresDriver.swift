@@ -24,11 +24,13 @@ nonisolated struct PostgresDriver: DatabaseDriver {
 
 actor PostgresSession: DatabaseSession {
     private var connection: PostgresConnection?
+    private let database: String
     private let logger = Logger(label: "de.holgerkrupp.DB-Connect.postgres")
     nonisolated let capabilities: DriverCapabilities
 
     init(config: ConnectionConfig, secret: Secret?, capabilities: DriverCapabilities) async throws {
         self.capabilities = capabilities
+        self.database = config.database
 
         let tls = try Self.makeTLS(for: config)
         let pgConfig = PostgresConnection.Configuration(
@@ -74,6 +76,32 @@ actor PostgresSession: DatabaseSession {
     func close() async {
         try? await connection?.close()
         connection = nil
+    }
+
+    // MARK: - Databases
+
+    func databases() async throws -> [String] {
+        let result = try await runQuery(Statement(
+            """
+            SELECT datname FROM pg_database
+            WHERE datallowconn AND NOT datistemplate
+            ORDER BY datname
+            """
+        ))
+        return result.rows.compactMap {
+            if case .text(let name) = $0[0] { return name }
+            return nil
+        }
+    }
+
+    var currentDatabase: String? {
+        get async { database.isEmpty ? nil : database }
+    }
+
+    /// PostgreSQL binds a connection to one database for its lifetime — there is no `USE`.
+    /// Refusing here lets the UI reconnect instead, which is the only correct way to switch.
+    func use(database newDatabase: String) async throws {
+        throw DatabaseError.unsupported("PostgreSQL cannot switch databases on an open connection.")
     }
 
     // MARK: - Introspection
