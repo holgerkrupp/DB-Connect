@@ -19,6 +19,8 @@ struct ConnectionDetailView: View {
     @State private var activeDatabase: String?
     @State private var isSwitching = false
     @State private var showsEditor = false
+    @State private var showsUsers = false
+    @State private var canManageUsers = false
 
     var body: some View {
         Group {
@@ -52,10 +54,21 @@ struct ConnectionDetailView: View {
                     .disabled(isSwitching)
                 }
             }
+            // Only shown when the server says this account may actually manage users.
+            if canManageUsers {
+                ToolbarItem {
+                    Button("Users", systemImage: "person.2") { showsUsers = true }
+                }
+            }
             ToolbarItem {
                 Button("Edit Connection", systemImage: "slider.horizontal.3") {
                     showsEditor = true
                 }
+            }
+        }
+        .sheet(isPresented: $showsUsers) {
+            if let session {
+                UserManagementView(session: session, databases: databases)
             }
         }
         .task { await connect() }
@@ -132,6 +145,7 @@ struct ConnectionDetailView: View {
 
             tables = try await newSession.tables()
             selectedTable = tables.first
+            canManageUsers = await newSession.userAdmin.isAvailable
         } catch {
             connectionError = error.localizedDescription
         }

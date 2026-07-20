@@ -217,6 +217,20 @@ actor PostgresSession: DatabaseSession {
         let qualified = try SQLIdentifier.qualify(schema: descriptor.schema, name: descriptor.name)
 
         var sql = "SELECT * FROM \(qualified)"
+        var bindings: [SQLValue] = []
+
+        // Postgres numbers its placeholders, so the filter binds must be emitted first and the
+        // LIMIT/OFFSET placeholders continue from wherever the predicate stopped.
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .postgres
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings += predicate.bindings
+        }
 
         if !request.sort.isEmpty {
             let terms = try request.sort.map { sort -> String in
@@ -229,11 +243,9 @@ actor PostgresSession: DatabaseSession {
         }
 
         // One extra row reveals whether a further page exists, without a COUNT.
-        sql += " LIMIT $1 OFFSET $2"
-        let result = try await runQuery(Statement(
-            sql,
-            bindings: [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
-        ))
+        sql += " LIMIT $\(predicate.nextIndex) OFFSET $\(predicate.nextIndex + 1)"
+        bindings += [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
+        let result = try await runQuery(Statement(sql, bindings: bindings))
 
         let hasMore = result.rows.count > request.limit
         return ResultSet(
@@ -242,6 +254,26 @@ actor PostgresSession: DatabaseSession {
             hasMore: hasMore,
             elapsed: result.elapsed
         )
+    }
+
+    func count(_ request: RowRequest) async throws -> Int? {
+        let descriptor = try await describe(table: request.table, schema: request.schema)
+        let qualified = try SQLIdentifier.qualify(schema: descriptor.schema, name: descriptor.name)
+        var sql = "SELECT COUNT(*) FROM \(qualified)"
+        var bindings: [SQLValue] = []
+
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .postgres
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings = predicate.bindings
+        }
+
+        return try await runQuery(Statement(sql, bindings: bindings)).scalar().map(Int.init)
     }
 
     func query(_ statement: Statement) async throws -> ResultSet {
@@ -325,8 +357,14 @@ actor PostgresSession: DatabaseSession {
 
             var columns: [ColumnDescriptor] = []
             var rows: [[SQLValue]] = []
+            var truncated = false
 
             for try await row in stream {
+                // Break out of the row stream once the cap is reached rather than draining it.
+                if rows.count >= QueryLimits.maxRows {
+                    truncated = true
+                    break
+                }
                 var values: [SQLValue] = []
                 var discoveredColumns: [ColumnDescriptor] = []
 
@@ -343,7 +381,7 @@ actor PostgresSession: DatabaseSession {
                 rows.append(values)
             }
 
-            return ResultSet(columns: columns, rows: rows, hasMore: false, elapsed: clock.now - start)
+            return ResultSet(columns: columns, rows: rows, hasMore: truncated, elapsed: clock.now - start)
         } catch let error as PSQLError {
             throw DatabaseError.queryFailed(
                 sql: statement.sql,

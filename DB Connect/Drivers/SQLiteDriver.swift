@@ -113,6 +113,18 @@ actor SQLiteSession: DatabaseSession {
         let known = Set(descriptor.columns.map(\.name))
 
         var sql = "SELECT * FROM \(try SQLIdentifier.quote(request.table))"
+        var bindings: [SQLValue] = []
+
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .sqlite
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings += predicate.bindings
+        }
 
         if !request.sort.isEmpty {
             // Sort columns come from UI interaction, but validate against the real schema anyway —
@@ -128,10 +140,8 @@ actor SQLiteSession: DatabaseSession {
 
         // Fetch one extra row to learn whether another page exists, without a second COUNT query.
         sql += " LIMIT ? OFFSET ?"
-        let result = try runQuery(Statement(
-            sql,
-            bindings: [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
-        ))
+        bindings += [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
+        let result = try runQuery(Statement(sql, bindings: bindings))
 
         let hasMore = result.rows.count > request.limit
         return ResultSet(
@@ -140,6 +150,25 @@ actor SQLiteSession: DatabaseSession {
             hasMore: hasMore,
             elapsed: result.elapsed
         )
+    }
+
+    func count(_ request: RowRequest) async throws -> Int? {
+        let descriptor = try await describe(table: request.table, schema: request.schema)
+        var sql = "SELECT COUNT(*) FROM \(try SQLIdentifier.quote(request.table))"
+        var bindings: [SQLValue] = []
+
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .sqlite
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings = predicate.bindings
+        }
+
+        return try runQuery(Statement(sql, bindings: bindings)).scalar().map(Int.init)
     }
 
     func query(_ statement: Statement) async throws -> ResultSet {
@@ -256,7 +285,14 @@ actor SQLiteSession: DatabaseSession {
         }
 
         var rows: [[SQLValue]] = []
+        var truncated = false
         while true {
+            // Stop collecting past the safety cap; an unqualified SELECT * must not be able
+            // to exhaust memory just because the user did not write a LIMIT.
+            if rows.count >= QueryLimits.maxRows {
+                truncated = true
+                break
+            }
             let step = sqlite3_step(stmt)
             if step == SQLITE_DONE { break }
             guard step == SQLITE_ROW else {
@@ -265,7 +301,7 @@ actor SQLiteSession: DatabaseSession {
             rows.append((0..<columnCount).map { value(of: stmt, at: Int32($0)) })
         }
 
-        return ResultSet(columns: columns, rows: rows, hasMore: false, elapsed: clock.now - start)
+        return ResultSet(columns: columns, rows: rows, hasMore: truncated, elapsed: clock.now - start)
     }
 
     private func value(of stmt: OpaquePointer?, at index: Int32) -> SQLValue {

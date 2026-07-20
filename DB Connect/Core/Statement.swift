@@ -30,19 +30,36 @@ nonisolated struct RowRequest: Sendable, Hashable {
     let table: String
     let schema: String?
     let sort: [SortTerm]
+    /// Per-column conditions, combined with AND.
+    let filters: [ColumnFilter]
+    /// Free text matched against every readable column, combined with OR.
+    let search: String?
     let limit: Int
     let offset: Int
 
-    init(table: String, schema: String? = nil, sort: [SortTerm] = [], limit: Int = 200, offset: Int = 0) {
+    init(
+        table: String,
+        schema: String? = nil,
+        sort: [SortTerm] = [],
+        filters: [ColumnFilter] = [],
+        search: String? = nil,
+        limit: Int = 200,
+        offset: Int = 0
+    ) {
         self.table = table
         self.schema = schema
         self.sort = sort
+        self.filters = filters
+        self.search = search
         self.limit = limit
         self.offset = offset
     }
 
     func nextPage() -> RowRequest {
-        RowRequest(table: table, schema: schema, sort: sort, limit: limit, offset: offset + limit)
+        RowRequest(
+            table: table, schema: schema, sort: sort, filters: filters,
+            search: search, limit: limit, offset: offset + limit
+        )
     }
 }
 

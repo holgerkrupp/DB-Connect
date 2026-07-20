@@ -5,10 +5,41 @@ nonisolated struct SQLDialect: Sendable {
     let identifierStyle: SQLIdentifier.Style
     /// Placeholder for the *n*-th bound value, 1-based. SQLite uses `?`, Postgres uses `$n`.
     let placeholder: @Sendable (Int) -> String
+    /// Wrap a quoted column so it can be matched as text, whatever its real type.
+    let castToText: @Sendable (String) -> String
+    /// The case-insensitive pattern operator. Postgres needs ILIKE; SQLite and MySQL are
+    /// already case-insensitive for LIKE under their default collations.
+    let caseInsensitiveLike: String
+    /// The SQL literal naming the LIKE escape character.
+    ///
+    /// MySQL and MariaDB process backslash escapes *inside* string literals, so `'\'` is an
+    /// unterminated string there and must be written `'\\'`. SQLite and PostgreSQL (with
+    /// standard_conforming_strings, the default) take `'\'` literally.
+    let likeEscapeLiteral: String
 
-    static let sqlite = SQLDialect(identifierStyle: .doubleQuote, placeholder: { _ in "?" })
-    static let postgres = SQLDialect(identifierStyle: .doubleQuote, placeholder: { "$\($0)" })
-    static let mysql = SQLDialect(identifierStyle: .backtick, placeholder: { _ in "?" })
+    static let sqlite = SQLDialect(
+        identifierStyle: .doubleQuote,
+        placeholder: { _ in "?" },
+        castToText: { "CAST(\($0) AS TEXT)" },
+        caseInsensitiveLike: "LIKE",
+        likeEscapeLiteral: #"'\'"#
+    )
+
+    static let postgres = SQLDialect(
+        identifierStyle: .doubleQuote,
+        placeholder: { "$\($0)" },
+        castToText: { "\($0)::text" },
+        caseInsensitiveLike: "ILIKE",
+        likeEscapeLiteral: #"'\'"#
+    )
+
+    static let mysql = SQLDialect(
+        identifierStyle: .backtick,
+        placeholder: { _ in "?" },
+        castToText: { "CAST(\($0) AS CHAR)" },
+        caseInsensitiveLike: "LIKE",
+        likeEscapeLiteral: #"'\\'"#
+    )
 }
 
 /// Turns a `RowMutation` into a parameterized statement.

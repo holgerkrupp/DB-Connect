@@ -9,9 +9,22 @@ struct TableBrowserView: View {
 
     @State private var result: ResultSet?
     @State private var rows: [[SQLValue]] = []
-    @State private var request: RowRequest?
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    // Explicit paging: one page is held in memory at a time, so browsing a large table costs
+    // the same as a small one.
+    @State private var offset = 0
+    @State private var pageSize = 200
+    @State private var totalRows: Int?
+
+    // Query shaping: sort, per-column filters and free-text search.
+    // `Table` owns the sort UI, so its comparators are the source of truth and `sort` is
+    // derived from them for the query.
+    @State private var sortOrder: [ColumnSortComparator] = []
+    @State private var filters: [ColumnFilter] = []
+    @State private var searchText = ""
+    @State private var editingFilter: ColumnFilter?
 
     // Editing state. Changes accumulate here and reach the database only on Apply.
     @State private var pending: [RowMutation] = []
@@ -37,11 +50,61 @@ struct TableBrowserView: View {
                 )
             } else {
                 header
+                if !filters.isEmpty {
+                    filterChips
+                }
                 Divider()
                 content
+                Divider()
+                PagerView(
+                    offset: offset,
+                    pageSize: pageSize,
+                    loadedRows: rows.count,
+                    totalRows: totalRows,
+                    isLoading: isLoading,
+                    onJump: { newOffset in
+                        offset = newOffset
+                        Task { await loadPage() }
+                    },
+                    onChangePageSize: { size in
+                        pageSize = size
+                        offset = 0
+                        Task { await loadPage() }
+                    }
+                )
             }
         }
-        .task(id: selectedTable?.id) { await loadFirstPage() }
+        .searchable(text: $searchText, prompt: "Search all columns")
+        .task(id: selectedTable?.id) {
+            // A new table invalidates sort and filters that referenced the old columns.
+            sortOrder = []
+            filters = []
+            searchText = ""
+            offset = 0
+            await loadPage()
+        }
+        .task(id: searchText) {
+            // Debounce: typing should not fire a query per keystroke.
+            guard !searchText.isEmpty || result != nil else { return }
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            offset = 0
+            await loadPage()
+        }
+        .task(id: filters) { offset = 0; await loadPage() }
+        .task(id: sortOrder) { offset = 0; await loadPage() }
+        .sheet(item: $editingFilter) { filter in
+            FilterEditorView(
+                filter: filter,
+                columns: selectedTable?.columns ?? []
+            ) { updated in
+                if let index = filters.firstIndex(where: { $0.id == updated.id }) {
+                    filters[index] = updated
+                } else {
+                    filters.append(updated)
+                }
+            }
+        }
         .sheet(item: $editingRow) { editing in
             if let table = selectedTable {
                 RowEditorView(
@@ -68,6 +131,7 @@ struct TableBrowserView: View {
             Text(commitError ?? "")
         }
         .toolbar {
+            ToolbarItem { filterMenu }
             if isEditable {
                 ToolbarItemGroup {
                     Button("Add Row", systemImage: "plus") {
@@ -139,7 +203,8 @@ struct TableBrowserView: View {
             _ = try await session.apply(pending, to: table)
             pending.removeAll()
             showsReview = false
-            await loadFirstPage()
+            offset = 0
+            await loadPage()
         } catch {
             showsReview = false
             commitError = error.localizedDescription
@@ -199,18 +264,17 @@ struct TableBrowserView: View {
             } description: {
                 Text(errorMessage)
             } actions: {
-                Button("Retry") { Task { await loadFirstPage() } }
+                Button("Retry") { Task { await loadPage() } }
             }
         } else if let result {
-            ResultGridView(
+            ResultTableView(
                 columns: result.columns,
                 rows: rows,
-                hasMore: result.hasMore,
-                loadMore: { Task { await loadNextPage() } },
+                sortOrder: $sortOrder,
+                dirtyRows: dirtyRowIndices,
                 onSelectRow: isEditable ? { index in
                     editingRow = EditingRow(values: rowDictionary(at: index), isInsert: false)
-                } : nil,
-                dirtyRows: dirtyRowIndices
+                } : nil
             )
         } else if isLoading {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -223,39 +287,99 @@ struct TableBrowserView: View {
     }
 
     private func statusText(_ result: ResultSet) -> String {
-        let count = "\(rows.count)\(result.hasMore ? "+" : "") rows"
-        let ms = result.elapsed.formatted(.units(allowed: [.milliseconds], width: .narrow))
-        return "\(count) · \(ms)"
+        result.elapsed.formatted(.units(allowed: [.milliseconds], width: .narrow))
     }
 
-    private func loadFirstPage() async {
+    /// Translate the table's comparators into the query's ORDER BY.
+    private var sort: [SortTerm] {
+        sortOrder.map { SortTerm(column: $0.column, ascending: $0.order == .forward) }
+    }
+
+    /// Menu of columns to filter on. The old grid put this in a header context menu, which
+    /// `Table` does not expose, so it lives in the toolbar instead.
+    private var filterMenu: some View {
+        Menu {
+            ForEach(selectedTable?.columns ?? []) { column in
+                Menu(column.name) {
+                    ForEach(FilterOperator.options(for: column)) { op in
+                        Button(op.title) {
+                            editingFilter = ColumnFilter(column: column.name, op: op)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .disabled(selectedTable == nil)
+    }
+
+    private var filterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(filters) { filter in
+                    Button {
+                        editingFilter = filter
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(filter.summary).lineLimit(1)
+                            Button {
+                                filters.removeAll { $0.id == filter.id }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.tint.opacity(0.15), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button("Clear All") { filters.removeAll() }
+                    .font(.caption)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 6)
+        }
+    }
+
+    private func loadPage() async {
         guard let table = selectedTable else { return }
         isLoading = true
         errorMessage = nil
         result = nil
         rows = []
 
-        let firstRequest = RowRequest(table: table.name, schema: table.schema)
+        let request = RowRequest(
+            table: table.name,
+            schema: table.schema,
+            sort: sort,
+            filters: filters,
+            search: searchText.isEmpty ? nil : searchText,
+            limit: pageSize,
+            offset: offset
+        )
         do {
-            let page = try await session.fetch(firstRequest)
-            request = firstRequest
+            let page = try await session.fetch(request)
             result = page
             rows = page.rows
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
 
-    private func loadNextPage() async {
-        guard let current = request, result?.hasMore == true, !isLoading else { return }
-        isLoading = true
-        let next = current.nextPage()
-        do {
-            let page = try await session.fetch(next)
-            request = next
-            result = page
-            rows.append(contentsOf: page.rows)
+            // Count separately: it is a second round-trip, and a failure there (no permission,
+            // slow table) should not stop the rows from being shown.
+            totalRows = try? await session.count(request)
+
+            // Filtering can leave the offset past the end of the new result — fall back to the
+            // first page rather than showing a confusing empty grid.
+            if page.rows.isEmpty && offset > 0 {
+                offset = 0
+                await loadPage()
+                return
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

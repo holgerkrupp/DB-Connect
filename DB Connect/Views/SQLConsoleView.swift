@@ -15,6 +15,9 @@ struct SQLConsoleView: View {
     @State private var isRunning = false
     @State private var showsSavePrompt = false
     @State private var saveTitle = ""
+    /// Console results are whatever the query returned, so its sort is inert — the table still
+    /// needs the binding to render its headers.
+    @State private var consoleSort: [ColumnSortComparator] = []
 
     var body: some View {
         VSplitLayout {
@@ -85,7 +88,27 @@ struct SQLConsoleView: View {
                 Label(executionSummary, systemImage: "checkmark.circle")
             }
         } else if let result {
-            ResultGridView(columns: result.columns, rows: result.rows, hasMore: false)
+            VStack(spacing: 0) {
+                if result.hasMore {
+                    // The driver stopped at the safety cap; say so rather than quietly showing
+                    // a partial answer as if it were complete.
+                    Label(
+                        "Showing the first \(QueryLimits.maxRows.formatted()) rows. Add a LIMIT to see a specific part of the result.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.orange.opacity(0.1))
+                }
+                ResultTableView(
+                    columns: result.columns,
+                    rows: result.rows,
+                    sortOrder: $consoleSort
+                )
+            }
         } else {
             ContentUnavailableView(
                 "Run a Query",

@@ -138,6 +138,10 @@ nonisolated protocol DatabaseSession: Sendable {
     func tables() async throws -> [TableDescriptor]
     func describe(table: String, schema: String?) async throws -> TableDescriptor
     func fetch(_ request: RowRequest) async throws -> ResultSet
+
+    /// Total rows matching the request's filters, ignoring its paging.
+    /// Nil when the driver cannot count cheaply — the UI then hides the total.
+    func count(_ request: RowRequest) async throws -> Int?
     func query(_ statement: Statement) async throws -> ResultSet
     func execute(_ statement: Statement) async throws -> ExecutionResult
 
@@ -148,6 +152,20 @@ nonisolated protocol DatabaseSession: Sendable {
     /// What `apply` would do, for the review sheet shown before committing.
     /// SQL drivers return statements; REST drivers return request lines.
     func preview(_ mutations: [RowMutation], to table: TableDescriptor) throws -> [String]
+
+    // MARK: User management
+
+    /// What this *connection* may do with accounts — not just what the driver supports.
+    /// Each action is gated separately, so a limited account gets the buttons it can use.
+    var userAdmin: UserAdminCapability { get async }
+
+    func users() async throws -> [DatabaseUser]
+    func grants(for user: DatabaseUser) async throws -> [String]
+    func createUser(name: String, host: String?, password: String) async throws
+    func dropUser(_ user: DatabaseUser) async throws
+    func setPassword(for user: DatabaseUser, to password: String) async throws
+    func grant(_ privileges: [Privilege], on scope: GrantScope, to user: DatabaseUser) async throws
+    func revoke(_ privileges: [Privilege], on scope: GrantScope, from user: DatabaseUser) async throws
 
     func close() async
 }
@@ -162,6 +180,42 @@ nonisolated extension DatabaseSession {
 
     var currentDatabase: String? {
         get async { nil }
+    }
+
+    func count(_ request: RowRequest) async throws -> Int? { nil }
+
+    // User management is opt-in: drivers that do not implement it report no capability and
+    // throw, so the UI never offers an action that cannot work.
+    var userAdmin: UserAdminCapability {
+        get async { .none }
+    }
+
+    func users() async throws -> [DatabaseUser] {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func grants(for user: DatabaseUser) async throws -> [String] {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func createUser(name: String, host: String?, password: String) async throws {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func dropUser(_ user: DatabaseUser) async throws {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func setPassword(for user: DatabaseUser, to password: String) async throws {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func grant(_ privileges: [Privilege], on scope: GrantScope, to user: DatabaseUser) async throws {
+        throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func revoke(_ privileges: [Privilege], on scope: GrantScope, from user: DatabaseUser) async throws {
+        throw DatabaseError.unsupported("This connection does not support user management.")
     }
 
     /// Shared implementation for SQL drivers: build one parameterized statement per mutation.

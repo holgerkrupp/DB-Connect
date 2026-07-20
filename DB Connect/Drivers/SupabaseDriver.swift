@@ -142,6 +142,25 @@ actor SupabaseSession: DatabaseSession {
             }
             items.append(URLQueryItem(name: "order", value: terms.joined(separator: ",")))
         }
+
+        // PostgREST expresses filters as query parameters rather than SQL: each column filter
+        // becomes `column=op.value`, and free-text search becomes a single `or=(...)` group.
+        for filter in rowRequest.filters where filter.isReady {
+            guard known.contains(filter.column) else {
+                throw DatabaseError.invalidIdentifier("Unknown column “\(filter.column)”.")
+            }
+            items.append(URLQueryItem(name: filter.column, value: try Self.postgrest(filter)))
+        }
+
+        if let search = rowRequest.search?.trimmingCharacters(in: .whitespaces), !search.isEmpty {
+            let searchable = descriptor.columns.filter(\.isSearchable)
+            if !searchable.isEmpty {
+                let escaped = Self.escapeForPostgREST(search)
+                let alternatives = searchable.map { "\($0.name).ilike.*\(escaped)*" }
+                items.append(URLQueryItem(name: "or", value: "(\(alternatives.joined(separator: ",")))"))
+            }
+        }
+
         components?.queryItems = items
 
         guard let url = components?.url else {
@@ -246,6 +265,35 @@ actor SupabaseSession: DatabaseSession {
         }
 
         return ExecutionResult(affectedRows: applied, lastInsertID: nil, elapsed: clock.now - start)
+    }
+
+    /// Translate a column filter into PostgREST's `op.value` syntax.
+    private static func postgrest(_ filter: ColumnFilter) throws -> String {
+        let value = escapeForPostgREST(filter.value)
+        return switch filter.op {
+        case .equals: "eq.\(value)"
+        case .notEquals: "neq.\(value)"
+        case .greaterThan: "gt.\(value)"
+        case .greaterOrEqual: "gte.\(value)"
+        case .lessThan: "lt.\(value)"
+        case .lessOrEqual: "lte.\(value)"
+        case .contains: "ilike.*\(value)*"
+        case .notContains: "not.ilike.*\(value)*"
+        case .startsWith: "ilike.\(value)*"
+        case .endsWith: "ilike.*\(value)"
+        case .isNull: "is.null"
+        case .isNotNull: "not.is.null"
+        }
+    }
+
+    /// PostgREST treats `*` as its wildcard and uses `,` and `)` as syntax, so those must not
+    /// arrive raw from a search box.
+    private static func escapeForPostgREST(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "*", with: "%2A")
+            .replacingOccurrences(of: ",", with: "%2C")
+            .replacingOccurrences(of: "(", with: "%28")
+            .replacingOccurrences(of: ")", with: "%29")
     }
 
     /// PostgREST row filter, e.g. `id=eq.42`.

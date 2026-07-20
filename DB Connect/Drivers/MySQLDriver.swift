@@ -249,6 +249,18 @@ actor MySQLSession: DatabaseSession {
         let quoted = try SQLIdentifier.quote(request.table, style: .backtick)
 
         var sql = "SELECT * FROM \(quoted)"
+        var bindings: [SQLValue] = []
+
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .mysql
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings += predicate.bindings
+        }
 
         if !request.sort.isEmpty {
             let terms = try request.sort.map { sort -> String in
@@ -262,10 +274,8 @@ actor MySQLSession: DatabaseSession {
 
         // One extra row tells us whether another page exists, without a COUNT.
         sql += " LIMIT ? OFFSET ?"
-        let result = try await runQuery(Statement(
-            sql,
-            bindings: [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
-        ))
+        bindings += [.integer(Int64(request.limit + 1)), .integer(Int64(request.offset))]
+        let result = try await runQuery(Statement(sql, bindings: bindings))
 
         let hasMore = result.rows.count > request.limit
         return ResultSet(
@@ -274,6 +284,25 @@ actor MySQLSession: DatabaseSession {
             hasMore: hasMore,
             elapsed: result.elapsed
         )
+    }
+
+    func count(_ request: RowRequest) async throws -> Int? {
+        let descriptor = try await describe(table: request.table, schema: nil)
+        var sql = "SELECT COUNT(*) FROM \(try SQLIdentifier.quote(request.table, style: .backtick))"
+        var bindings: [SQLValue] = []
+
+        let predicate = try PredicateBuilder.build(
+            filters: request.filters,
+            search: request.search,
+            columns: descriptor.columns,
+            dialect: .mysql
+        )
+        if let clause = predicate.clause {
+            sql += " WHERE \(clause)"
+            bindings = predicate.bindings
+        }
+
+        return try await runQuery(Statement(sql, bindings: bindings)).scalar().map(Int.init)
     }
 
     func query(_ statement: Statement) async throws -> ResultSet {
@@ -365,15 +394,20 @@ actor MySQLSession: DatabaseSession {
         let clock = ContinuousClock()
         let start = clock.now
 
-        let mysqlRows: [MySQLRow]
+        // Collect through a callback so rows past the safety cap are dropped as they arrive,
+        // rather than materialising the whole result first and trimming afterwards.
+        let collector = RowCollector()
         do {
-            mysqlRows = try await connection.query(
+            _ = try await connection.query(
                 statement.sql,
-                statement.bindings.map(Self.bind)
+                statement.bindings.map(Self.bind),
+                onRow: { collector.append($0) }
             ).get()
         } catch {
             throw DatabaseError.queryFailed(sql: statement.sql, message: Self.explain(error))
         }
+        let mysqlRows = collector.rows
+        let truncated = collector.truncated
 
         let columns = mysqlRows.first?.columnDefinitions.map { definition in
             ColumnDescriptor(name: definition.name, declaredType: String(describing: definition.columnType))
@@ -385,7 +419,34 @@ actor MySQLSession: DatabaseSession {
             }
         }
 
-        return ResultSet(columns: columns, rows: rows, hasMore: false, elapsed: clock.now - start)
+        return ResultSet(columns: columns, rows: rows, hasMore: truncated, elapsed: clock.now - start)
+    }
+
+    /// MySQLNIO hands rows to an escaping callback, so collection needs somewhere thread-safe
+    /// to accumulate — and it is where the row cap is enforced.
+    private final class RowCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [MySQLRow] = []
+        private var didTruncate = false
+
+        func append(_ row: MySQLRow) {
+            lock.lock(); defer { lock.unlock() }
+            guard storage.count < QueryLimits.maxRows else {
+                didTruncate = true
+                return
+            }
+            storage.append(row)
+        }
+
+        var rows: [MySQLRow] {
+            lock.lock(); defer { lock.unlock() }
+            return storage
+        }
+
+        var truncated: Bool {
+            lock.lock(); defer { lock.unlock() }
+            return didTruncate
+        }
     }
 
     private static func bind(_ value: SQLValue) -> MySQLData {
