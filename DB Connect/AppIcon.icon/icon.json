@@ -1,0 +1,25 @@
+{
+  "fill" : "automatic",
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : {
+            "automatic-gradient" : "srgb:0.22000,0.55000,1.00000,1.00000"
+          },
+          "glass" : true,
+          "image-name" : "database-icon.svg",
+          "name" : "database-icon",
+          "opacity" : 1
+        }
+      ],
+      "lighting" : "individual",
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ]
+}
