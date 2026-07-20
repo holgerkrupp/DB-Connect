@@ -10,23 +10,81 @@ import SwiftData
 
 @main
 struct DB_ConnectApp: App {
-    var sharedModelContainer: ModelContainer = {
+    @Environment(\.scenePhase) private var scenePhase
+
+    let sharedModelContainer: ModelContainer
+    @State private var scheduler: MonitorScheduler
+
+    init() {
+        let container = Self.makeContainer()
+        self.sharedModelContainer = container
+        let scheduler = MonitorScheduler(container: container)
+        _scheduler = State(initialValue: scheduler)
+
+        #if os(iOS)
+        // Registration must happen before launch finishes, so it belongs in init.
+        scheduler.registerBackgroundTask()
+        #endif
+    }
+
+    static func makeContainer() -> ModelContainer {
         let schema = Schema([
-            Item.self,
+            Connection.self,
+            SavedQuery.self,
+            Monitor.self,
+            MonitorActivation.self,
+            MonitorSample.self,
+            MonitorField.self
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+
+        // Primary store: the private CloudKit database, so connections, saved queries and
+        // monitor definitions follow the user across devices. Result data and credentials never
+        // go through here — secrets sync separately via iCloud Keychain.
+        let cloud = ModelConfiguration(
+            schema: schema,
+            cloudKitDatabase: .private("iCloud.de.holgerkrupp.DB-Connect")
+        )
 
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try ModelContainer(for: schema, configurations: [cloud])
+        } catch {
+            // No iCloud account, sync disabled, or missing entitlement at dev time.
+            // A database client that refuses to launch without iCloud would be absurd,
+            // so fall back to the same schema in a purely local store.
+            print("CloudKit store unavailable (\(error)); falling back to local store.")
+        }
+
+        let local = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
+        do {
+            return try ModelContainer(for: schema, configurations: [local])
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
-    }()
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(\.monitorScheduler, scheduler)
+                .task { scheduler.start() }
         }
         .modelContainer(sharedModelContainer)
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:
+                // The only execution path that is reliable on every platform.
+                Task { await scheduler.runDue() }
+            case .background:
+                #if os(iOS)
+                scheduler.scheduleBackgroundRefresh()
+                #endif
+            default:
+                break
+            }
+        }
     }
+}
+
+extension EnvironmentValues {
+    @Entry var monitorScheduler: MonitorScheduler?
 }
