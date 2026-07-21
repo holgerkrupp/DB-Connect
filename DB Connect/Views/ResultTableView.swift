@@ -96,17 +96,16 @@ struct ResultTableView: View {
                 .help("Sort by \(column.name)")
             }
         }
-        .overlay(alignment: .bottom) { Divider() }
     }
 
-    private func dataRow(at index: Int, widths: [CGFloat]) -> some View {
-        let row = rows[index]
-        return HStack(spacing: 0) {
-            Group {
-                if dirtyRows.contains(index) {
+    private var table: some View {
+        Table(of: ResultRow.self, selection: $selection, sortOrder: $sortOrder) {
+            // A narrow marker column: Table gives no way to style a whole row, so pending
+            // edits are shown here rather than as a row tint.
+            TableColumn("") { row in
+                if dirtyRows.contains(row.id) {
                     Image(systemName: "pencil.circle.fill")
                         .foregroundStyle(.orange)
-                        .font(.caption2)
                         .help("This row has unsaved changes")
                 } else {
                     Color.clear
