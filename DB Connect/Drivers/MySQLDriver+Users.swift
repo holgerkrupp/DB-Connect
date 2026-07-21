@@ -117,6 +117,48 @@ extension MySQLSession {
         _ = try await execute(Statement("FLUSH PRIVILEGES"))
     }
 
+    // MARK: - Full privilege editor
+
+    /// The privileges this server actually understands, upper-cased to match `MySQLPrivilege.sql`.
+    ///
+    /// MariaDB and the various MySQL versions differ (MariaDB has no `CREATE TABLESPACE`, for
+    /// example), so the editor intersects the catalog with this before drawing checkboxes — a
+    /// privilege the server has never heard of would only fail on Apply. Falls back to the whole
+    /// catalog if the query is refused, which is no worse than not filtering at all.
+    func supportedPrivileges() async -> Set<String> {
+        guard let result = try? await query(Statement("SHOW PRIVILEGES")) else {
+            return Set(MySQLPrivilege.all.map(\.sql))
+        }
+        let names = result.rows.compactMap { row -> String? in
+            guard case .text(let name)? = row.first else { return nil }
+            return name.uppercased()
+        }
+        return names.isEmpty ? Set(MySQLPrivilege.all.map(\.sql)) : Set(names)
+    }
+
+    /// Grant a set of privilege *keywords* (from `MySQLPrivilege`, never user input) at one scope,
+    /// optionally with grant option. An empty list with `grantOption` true grants `USAGE WITH
+    /// GRANT OPTION`, which is how MySQL adds the grant right without adding any privilege.
+    func grantPrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, to user: DatabaseUser) async throws {
+        guard !names.isEmpty || grantOption else { return }
+        let account = try Self.account(for: user)
+        let list = names.isEmpty ? "USAGE" : names.joined(separator: ", ")
+        let withGrant = grantOption ? " WITH GRANT OPTION" : ""
+        _ = try await execute(Statement("GRANT \(list) ON \(try Self.target(scope)) TO \(account)\(withGrant)"))
+        _ = try await execute(Statement("FLUSH PRIVILEGES"))
+    }
+
+    /// Revoke a set of privilege keywords at one scope. `GRANT OPTION` is a normal list item for
+    /// `REVOKE` (unlike `GRANT`, where it is the trailing clause).
+    func revokePrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, from user: DatabaseUser) async throws {
+        var list = names
+        if grantOption { list.append("GRANT OPTION") }
+        guard !list.isEmpty else { return }
+        let account = try Self.account(for: user)
+        _ = try await execute(Statement("REVOKE \(list.joined(separator: ", ")) ON \(try Self.target(scope)) FROM \(account)"))
+        _ = try await execute(Statement("FLUSH PRIVILEGES"))
+    }
+
     /// The account this connection is authenticated as.
     private func currentUser() async throws -> DatabaseUser? {
         let result = try await query(Statement("SELECT CURRENT_USER()"))

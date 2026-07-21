@@ -196,7 +196,9 @@ struct ConnectionFormView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 440, minHeight: 400)
+        // Sized so the whole form is visible without scrolling — TLS and certificate pinning
+        // push it well past the old 400pt, and a panel that clips its own fields reads as broken.
+        .frame(minWidth: 560, idealWidth: 620, minHeight: 620, idealHeight: 700)
         #endif
         .onAppear(perform: populateFromExisting)
         .onChange(of: driverID) { _, newValue in

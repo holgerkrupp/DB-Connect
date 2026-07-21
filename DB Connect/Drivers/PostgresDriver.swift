@@ -14,7 +14,9 @@ nonisolated struct PostgresDriver: DatabaseDriver {
         canRunArbitrarySQL: true,
         supportsTransactions: true,
         supportsSchemas: true,
-        requiresCredentials: true
+        requiresCredentials: true,
+        supportsUserManagement: true,
+        supportsSchemaChanges: true
     )
 
     func connect(config: ConnectionConfig, secret: Secret?) async throws -> any DatabaseSession {

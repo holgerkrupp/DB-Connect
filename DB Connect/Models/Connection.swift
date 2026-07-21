@@ -32,6 +32,10 @@ final class Connection {
     @Relationship(deleteRule: .cascade, inverse: \SavedQuery.connection)
     var savedQueries: [SavedQuery]? = []
 
+    /// Automatically recorded statements. Cascade: history is meaningless without its connection.
+    @Relationship(deleteRule: .cascade, inverse: \QueryHistoryEntry.connection)
+    var history: [QueryHistoryEntry]? = []
+
     init(name: String, driverID: String) {
         self.name = name
         self.driverID = driverID
@@ -56,6 +60,12 @@ final class SavedQuery {
     var id: UUID = UUID()
     var title: String = ""
     var sql: String = ""
+    /// The database this query was written against — captured from the console's active
+    /// database when saved. Server-level connections (typically MySQL) leave `Connection.database`
+    /// empty and pick a database interactively, so without this a monitor would reconnect with no
+    /// database selected and fail with "No database selected". Empty means "use the connection's
+    /// own database", which covers file-based drivers and connections bound to a single database.
+    var database: String = ""
     var createdAt: Date = Date.now
     var connection: Connection?
 

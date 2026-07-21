@@ -6,6 +6,8 @@ struct TableBrowserView: View {
     let connection: Connection
     let tables: [TableDescriptor]
     @Binding var selectedTable: TableDescriptor?
+    /// False when a table list column is on screen, which would make this picker a duplicate.
+    var showsTablePicker = true
 
     @State private var result: ResultSet?
     @State private var rows: [[SQLValue]] = []
@@ -55,7 +57,8 @@ struct TableBrowserView: View {
                 }
                 Divider()
                 content
-                Divider()
+                // No divider here — `bottomBar()` draws its own, so every column's bottom strip
+                // gets the same separator in the same place.
                 PagerView(
                     offset: offset,
                     pageSize: pageSize,
@@ -147,6 +150,12 @@ struct TableBrowserView: View {
                 }
             }
         }
+        .focusedSceneValue(\.browserActions, BrowserActions(
+            refresh: { Task { await loadPage() } },
+            addRow: isEditable ? { editingRow = EditingRow(values: [:], isInsert: true) } : nil,
+            reviewChanges: pending.isEmpty ? nil : { prepareReview() },
+            pendingCount: pending.count
+        ))
     }
 
     /// Editing needs three things to line up: the connection isn't read-only, the driver can
@@ -213,13 +222,19 @@ struct TableBrowserView: View {
 
     private var header: some View {
         HStack {
-            Picker("Table", selection: $selectedTable) {
-                ForEach(tables) { table in
-                    Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
-                        .tag(Optional(table))
+            if showsTablePicker {
+                Picker("Table", selection: $selectedTable) {
+                    ForEach(tables) { table in
+                        Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+                            .tag(Optional(table))
+                    }
                 }
+                .frame(maxWidth: 320, alignment: .leading)
+            } else if let table = selectedTable {
+                // The list column owns selection, so the header just names what is shown.
+                Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+                    .font(.headline)
             }
-            .frame(maxWidth: 320, alignment: .leading)
 
             if let table = selectedTable, let reason = readOnlyReason(for: table) {
                 Label(reason, systemImage: "lock")

@@ -9,6 +9,12 @@ struct ContentView: View {
     @State private var selection: SidebarItem?
     @State private var showsNewConnection = false
     @State private var editingConnection: Connection?
+    /// A menu item is far easier to hit by accident than a context menu, and deleting a
+    /// connection also drops its Keychain entry, so the menu route confirms first.
+    @State private var connectionToDelete: Connection?
+    #if os(iOS)
+    @State private var showsSettings = false
+    #endif
 
     /// The sidebar mixes connections with the monitors section, so selection needs one type.
     enum SidebarItem: Hashable {
@@ -21,7 +27,9 @@ struct ContentView: View {
             List(selection: $selection) {
                 Section("Connections") {
                     ForEach(connections) { connection in
-                        ConnectionRow(connection: connection)
+                        ConnectionRow(connection: connection) {
+                            editingConnection = connection
+                        }
                             .tag(SidebarItem.connection(connection))
                             .contextMenu {
                                 Button("Edit…", systemImage: "pencil") {
@@ -29,6 +37,12 @@ struct ContentView: View {
                                 }
                                 Button("Duplicate", systemImage: "plus.square.on.square") {
                                     duplicate(connection)
+                                }
+                                // Only meaningful for the connection that is actually open.
+                                if selectedConnection?.id == connection.id {
+                                    Button("Close Connection", systemImage: "xmark.circle") {
+                                        selection = nil
+                                    }
                                 }
                                 Divider()
                                 Button("Delete", systemImage: "trash", role: .destructive) {
@@ -57,13 +71,18 @@ struct ContentView: View {
                         showsNewConnection = true
                     }
                 }
+                #if os(iOS)
+                // macOS gets the standard Settings window from the app menu instead.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") {
+                        showsSettings = true
+                    }
+                }
+                #endif
             }
             .safeAreaInset(edge: .bottom) {
                 SyncStatusView()
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.bar)
+                    .bottomBar()
             }
         } detail: {
             switch selection {
@@ -82,6 +101,48 @@ struct ContentView: View {
         .sheet(item: $editingConnection) { connection in
             ConnectionFormView(existing: connection)
         }
+        .confirmationDialog(
+            "Delete “\(connectionToDelete?.name ?? "")”?",
+            isPresented: .constant(connectionToDelete != nil),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Connection", role: .destructive) {
+                if let connectionToDelete { delete(connectionToDelete) }
+                connectionToDelete = nil
+            }
+            Button("Cancel", role: .cancel) { connectionToDelete = nil }
+        } message: {
+            Text("This removes the connection and its stored password. The database itself is untouched.")
+        }
+        .focusedSceneValue(\.connectionListActions, ConnectionListActions(
+            newConnection: { showsNewConnection = true },
+            editSelected: selectedConnection.map { connection in
+                { editingConnection = connection }
+            },
+            duplicateSelected: selectedConnection.map { connection in
+                { duplicate(connection) }
+            },
+            deleteSelected: selectedConnection.map { connection in
+                { connectionToDelete = connection }
+            },
+            // Deselecting tears down `ConnectionDetailView`, whose `onDisappear` closes the
+            // session — so this is a real hang-up, not just a change of view.
+            closeSelected: selectedConnection.map { _ in
+                { selection = nil }
+            }
+        ))
+        #if os(iOS)
+        .sheet(isPresented: $showsSettings) {
+            SettingsSheet()
+        }
+        #endif
+    }
+
+    /// The connection the menu commands act on. Nil while the Monitors section is selected,
+    /// which is what greys those items out.
+    private var selectedConnection: Connection? {
+        if case .connection(let connection) = selection { return connection }
+        return nil
     }
 
     /// Copy the configuration but not the secret — a duplicate is usually a different account,
@@ -122,20 +183,43 @@ struct ContentView: View {
 
 struct ConnectionRow: View {
     let connection: Connection
+    var onEdit: (() -> Void)?
+
+    #if os(macOS)
+    @State private var isHovering = false
+    #endif
 
     var body: some View {
-        Label {
-            VStack(alignment: .leading) {
-                Text(connection.name.isEmpty ? "Untitled" : connection.name)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        HStack(spacing: 4) {
+            Label {
+                VStack(alignment: .leading) {
+                    Text(connection.name.isEmpty ? "Untitled" : connection.name)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } icon: {
+                Image(systemName: DriverRegistry.symbol(for: connection.driverID))
             }
-        } icon: {
-            Image(systemName: DriverRegistry.symbol(for: connection.driverID))
+            .badge(connection.isReadOnly ? Text(Image(systemName: "lock")) : nil)
+
+            #if os(macOS)
+            // Settings belong to the connection, so the way in sits on the connection's own row
+            // rather than in the detail toolbar. Revealed on hover to keep the list quiet.
+            if isHovering, let onEdit {
+                Spacer(minLength: 4)
+                Button("Edit Connection", systemImage: "slider.horizontal.3", action: onEdit)
+                    .buttonStyle(.borderless)
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
+                    .help("Edit this connection's settings")
+            }
+            #endif
         }
-        .badge(connection.isReadOnly ? Text(Image(systemName: "lock")) : nil)
+        #if os(macOS)
+        .onHover { isHovering = $0 }
+        #endif
     }
 
     private var subtitle: String {

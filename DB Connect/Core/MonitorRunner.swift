@@ -132,7 +132,7 @@ actor MonitorRunner {
 
         do {
             let secret = try KeychainSecretStore().secret(for: connection.id)
-            let session = try await driver.connect(config: connection.config, secret: secret)
+            let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
             defer { Task { await session.close() } }
 
             let result = try await session.query(Statement(query.sql))
@@ -166,7 +166,7 @@ actor MonitorRunner {
             throw DatabaseError.missingCredentials
         }
 
-        let session = try await driver.connect(config: connection.config, secret: secret)
+        let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
         defer { Task { await session.close() } }
 
         let result = try await session.query(Statement(query.sql))
@@ -174,6 +174,21 @@ actor MonitorRunner {
             value: result.scalar(column: monitor.comparisonColumn),
             rowCount: result.rows.count
         )
+    }
+
+    /// The connection config to dial for a saved query, with its recorded database selected.
+    ///
+    /// A server-level connection (typically MySQL) has no database of its own, so it is chosen at
+    /// connect time from what the query was saved against. This also covers PostgreSQL, which binds
+    /// a connection to one database for its lifetime and so cannot `USE` another after connecting.
+    /// An empty `query.database` leaves the connection's own value untouched — the right default for
+    /// file-based drivers and connections already bound to a single database.
+    private func config(for query: SavedQuery, on connection: Connection) -> ConnectionConfig {
+        var config = connection.config
+        if !query.database.isEmpty {
+            config.database = query.database
+        }
+        return config
     }
 
     /// Keep history bounded — this syncs through CloudKit, and an hourly monitor would otherwise

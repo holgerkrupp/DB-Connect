@@ -11,12 +11,11 @@ nonisolated struct ResultRow: Identifiable, Hashable {
     }
 }
 
-/// Sorting is done by the database, not in the view.
-///
-/// `Table` insists on a `SortComparator` to drive its header indicators, but comparing rows
-/// locally would only reorder the current page — which is wrong, since a page is a window onto
-/// a much larger result. So `compare` deliberately does nothing, and the view reacts to
-/// `sortOrder` changing by re-querying the server with a new ORDER BY.
+/// `Table` insists on a `SortComparator` to drive its header indicators, but never applies it
+/// itself — the owner of `sortOrder` decides what a sort means. The table browser re-queries
+/// the server with a new ORDER BY (its page is a window onto a larger result); the SQL console
+/// sorts the returned page in memory. Either way `compare` itself is never used, so it does
+/// nothing.
 nonisolated struct ColumnSortComparator: SortComparator, Hashable {
     typealias Compared = ResultRow
 

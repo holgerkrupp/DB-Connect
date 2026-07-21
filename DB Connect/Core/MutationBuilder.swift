@@ -2,6 +2,15 @@ import Foundation
 
 /// The SQL spelling differences that matter when generating statements.
 nonisolated struct SQLDialect: Sendable {
+    /// Which engine this dialect describes. Needed where the difference is not one spelling rule
+    /// but a whole vocabulary — column types and identity columns in DDL, mainly.
+    enum Family: Sendable, Hashable {
+        case sqlite
+        case postgres
+        case mysql
+    }
+
+    let family: Family
     let identifierStyle: SQLIdentifier.Style
     /// Placeholder for the *n*-th bound value, 1-based. SQLite uses `?`, Postgres uses `$n`.
     let placeholder: @Sendable (Int) -> String
@@ -18,6 +27,7 @@ nonisolated struct SQLDialect: Sendable {
     let likeEscapeLiteral: String
 
     static let sqlite = SQLDialect(
+        family: .sqlite,
         identifierStyle: .doubleQuote,
         placeholder: { _ in "?" },
         castToText: { "CAST(\($0) AS TEXT)" },
@@ -26,6 +36,7 @@ nonisolated struct SQLDialect: Sendable {
     )
 
     static let postgres = SQLDialect(
+        family: .postgres,
         identifierStyle: .doubleQuote,
         placeholder: { "$\($0)" },
         castToText: { "\($0)::text" },
@@ -34,6 +45,7 @@ nonisolated struct SQLDialect: Sendable {
     )
 
     static let mysql = SQLDialect(
+        family: .mysql,
         identifierStyle: .backtick,
         placeholder: { _ in "?" },
         castToText: { "CAST(\($0) AS CHAR)" },

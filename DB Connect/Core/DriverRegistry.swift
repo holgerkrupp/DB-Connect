@@ -43,6 +43,17 @@ nonisolated enum DriverRegistry {
         }
     }
 
+    /// The SQL dialect a driver generates, for views that preview statements before running them.
+    /// Nil for drivers that speak no SQL at all.
+    static func dialect(for id: String) -> SQLDialect? {
+        switch id {
+        case SQLiteDriver.id: .sqlite
+        case MySQLDriver.id: .mysql
+        case PostgresDriver.id: .postgres
+        default: nil
+        }
+    }
+
     static func symbol(for id: String) -> String {
         switch id {
         case SQLiteDriver.id: "internaldrive"

@@ -97,9 +97,7 @@ struct PagerView: View {
             .labelsHidden()
             .frame(maxWidth: 110)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.bar)
+        .bottomBar()
     }
 
     private var positionText: String {

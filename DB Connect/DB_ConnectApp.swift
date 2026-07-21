@@ -31,6 +31,7 @@ struct DB_ConnectApp: App {
         let schema = Schema([
             Connection.self,
             SavedQuery.self,
+            QueryHistoryEntry.self,
             Monitor.self,
             MonitorActivation.self,
             MonitorSample.self,
@@ -69,6 +70,7 @@ struct DB_ConnectApp: App {
                 .task { scheduler.start() }
         }
         .modelContainer(sharedModelContainer)
+        .commands { AppMenuCommands() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
@@ -82,6 +84,21 @@ struct DB_ConnectApp: App {
                 break
             }
         }
+
+        // The Sequel Ace–style account manager, opened in its own window on Mac and iPad. It is
+        // keyed by the connection's UUID; the window reconnects its own session from that id.
+        WindowGroup("Users", id: UserAdminWindow.sceneID, for: UUID.self) { $connectionID in
+            UserAdminWindow(connectionID: connectionID)
+                .environment(\.monitorScheduler, scheduler)
+        }
+        .modelContainer(sharedModelContainer)
+
+        #if os(macOS)
+        // iOS reaches the same form through a toolbar button in ContentView.
+        Settings {
+            SettingsView()
+        }
+        #endif
     }
 }
 

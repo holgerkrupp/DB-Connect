@@ -28,6 +28,22 @@ nonisolated enum SQLValue: Sendable, Hashable {
         }
     }
 
+    /// Ordering for locally sorted grids: NULLs first, numerics and dates by magnitude,
+    /// everything else by natural text comparison of the display form.
+    func compare(to other: SQLValue) -> ComparisonResult {
+        switch (self, other) {
+        case (.null, .null): return .orderedSame
+        case (.null, _): return .orderedAscending
+        case (_, .null): return .orderedDescending
+        default:
+            if let lhs = doubleValue, let rhs = other.doubleValue {
+                if lhs == rhs { return .orderedSame }
+                return lhs < rhs ? .orderedAscending : .orderedDescending
+            }
+            return displayText.localizedStandardCompare(other.displayText)
+        }
+    }
+
     /// Display form for the result grid. Deliberately not localised — this is data, not prose.
     var displayText: String {
         switch self {

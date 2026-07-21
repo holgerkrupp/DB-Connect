@@ -21,7 +21,10 @@ nonisolated struct MySQLDriver: DatabaseDriver {
         canRunArbitrarySQL: true,
         supportsTransactions: true,
         supportsSchemas: false,     // MySQL's "schema" is the database itself
-        requiresCredentials: true
+        requiresCredentials: true,
+        supportsUserManagement: true,
+        supportsSchemaChanges: true,
+        supportsGranularPrivileges: true
     )
 
     func connect(config: ConnectionConfig, secret: Secret?) async throws -> any DatabaseSession {

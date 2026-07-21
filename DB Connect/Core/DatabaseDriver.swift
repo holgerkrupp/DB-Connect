@@ -59,19 +59,37 @@ nonisolated struct DriverCapabilities: Sendable, Hashable {
     let supportsTransactions: Bool
     let supportsSchemas: Bool
     let requiresCredentials: Bool
+    /// Whether the driver implements account management at all.
+    ///
+    /// Distinct from `UserAdminCapability`, which is about what the *connected account* is
+    /// permitted to do. The UI needs both: this decides whether to show the Users affordance,
+    /// the capability decides which actions inside it are enabled.
+    let supportsUserManagement: Bool
+    /// Whether the driver implements `createTable` / `createDatabase`.
+    let supportsSchemaChanges: Bool
+    /// Whether the driver models the complete, per-scope privilege set (global and per-database,
+    /// including administrative privileges) that the Sequel Ace–style rights editor needs. Only
+    /// MySQL/MariaDB does today; other drivers keep the simpler grant/revoke sheet.
+    let supportsGranularPrivileges: Bool
 
     init(
         canEditRows: Bool,
         canRunArbitrarySQL: Bool,
         supportsTransactions: Bool,
         supportsSchemas: Bool,
-        requiresCredentials: Bool
+        requiresCredentials: Bool,
+        supportsUserManagement: Bool = false,
+        supportsSchemaChanges: Bool = false,
+        supportsGranularPrivileges: Bool = false
     ) {
         self.canEditRows = canEditRows
         self.canRunArbitrarySQL = canRunArbitrarySQL
         self.supportsTransactions = supportsTransactions
         self.supportsSchemas = supportsSchemas
         self.requiresCredentials = requiresCredentials
+        self.supportsUserManagement = supportsUserManagement
+        self.supportsSchemaChanges = supportsSchemaChanges
+        self.supportsGranularPrivileges = supportsGranularPrivileges
     }
 }
 
@@ -167,6 +185,23 @@ nonisolated protocol DatabaseSession: Sendable {
     func grant(_ privileges: [Privilege], on scope: GrantScope, to user: DatabaseUser) async throws
     func revoke(_ privileges: [Privilege], on scope: GrantScope, from user: DatabaseUser) async throws
 
+    /// The full-privilege editor path, used by the Sequel Ace–style rights window. Privilege
+    /// names are keywords from `MySQLPrivilege`, never user input. Drivers that do not model the
+    /// complete privilege set (currently everything except MySQL/MariaDB) report none and throw.
+    func supportedPrivileges() async -> Set<String>
+    func grantPrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, to user: DatabaseUser) async throws
+    func revokePrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, from user: DatabaseUser) async throws
+
+    // MARK: Schema management
+
+    /// What this connection may do to the schema. Re-read after switching databases, since
+    /// privileges are commonly granted per database.
+    var schemaAdmin: SchemaAdminCapability { get async }
+
+    func createTable(_ spec: NewTableSpec) async throws
+    func dropTable(_ table: TableDescriptor) async throws
+    func createDatabase(name: String) async throws
+
     func close() async
 }
 
@@ -216,6 +251,39 @@ nonisolated extension DatabaseSession {
 
     func revoke(_ privileges: [Privilege], on scope: GrantScope, from user: DatabaseUser) async throws {
         throw DatabaseError.unsupported("This connection does not support user management.")
+    }
+
+    func supportedPrivileges() async -> Set<String> { [] }
+
+    func grantPrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, to user: DatabaseUser) async throws {
+        throw DatabaseError.unsupported("This connection does not support the full privilege editor.")
+    }
+
+    func revokePrivileges(_ names: [String], grantOption: Bool, on scope: GrantScope, from user: DatabaseUser) async throws {
+        throw DatabaseError.unsupported("This connection does not support the full privilege editor.")
+    }
+
+    // Schema management is opt-in on the same terms as user management: report no capability
+    // and throw, so the UI never offers a button that cannot work.
+    var schemaAdmin: SchemaAdminCapability {
+        get async { .none }
+    }
+
+    func createTable(_ spec: NewTableSpec) async throws {
+        throw DatabaseError.unsupported("This connection cannot create tables.")
+    }
+
+    func dropTable(_ table: TableDescriptor) async throws {
+        throw DatabaseError.unsupported("This connection cannot drop tables.")
+    }
+
+    func createDatabase(name: String) async throws {
+        throw DatabaseError.unsupported("This connection cannot create databases.")
+    }
+
+    /// Shared implementation for SQL drivers: create a table from a spec in one statement.
+    func sqlCreateTable(_ spec: NewTableSpec, dialect: SQLDialect) async throws {
+        _ = try await execute(SQLDDLBuilder.createTable(spec, dialect: dialect))
     }
 
     /// Shared implementation for SQL drivers: build one parameterized statement per mutation.

@@ -13,7 +13,9 @@ nonisolated struct SQLiteDriver: DatabaseDriver {
         canRunArbitrarySQL: true,
         supportsTransactions: true,
         supportsSchemas: false,
-        requiresCredentials: false
+        requiresCredentials: false,
+        // No privilege system: whoever can open the file can change its schema.
+        supportsSchemaChanges: true
     )
 
     init() {}
