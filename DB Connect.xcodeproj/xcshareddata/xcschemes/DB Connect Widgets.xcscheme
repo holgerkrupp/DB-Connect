@@ -18,6 +18,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "DBC0FFEE10000007"
                BuildableName = "DB Connect Widgets.appex"
+               BlueprintName = "DB Connect Widgets"
                ReferencedContainer = "container:DB Connect.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -31,6 +32,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "4893A084300E5732006E4110"
                BuildableName = "DB Connect.app"
+               BlueprintName = "DB Connect"
                ReferencedContainer = "container:DB Connect.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -63,6 +65,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "DBC0FFEE10000007"
             BuildableName = "DB Connect Widgets.appex"
+            BlueprintName = "DB Connect Widgets"
             ReferencedContainer = "container:DB Connect.xcodeproj">
          </BuildableReference>
       </RemoteRunnable>
@@ -71,6 +74,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "4893A084300E5732006E4110"
             BuildableName = "DB Connect.app"
+            BlueprintName = "DB Connect"
             ReferencedContainer = "container:DB Connect.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
@@ -106,6 +110,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "4893A084300E5732006E4110"
             BuildableName = "DB Connect.app"
+            BlueprintName = "DB Connect"
             ReferencedContainer = "container:DB Connect.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

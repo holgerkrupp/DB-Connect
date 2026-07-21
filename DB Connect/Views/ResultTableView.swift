@@ -25,17 +25,17 @@ struct ResultTableView: View {
     /// Row indices with uncommitted edits, marked so pending work is never invisible.
     var dirtyRows: Set<Int> = []
     var onSelectRow: ((Int) -> Void)?
-
+    
     private let markerWidth: CGFloat = 22
     private let rowHeight: CGFloat = 30
-
+    
     var body: some View {
         if columns.isEmpty {
             ContentUnavailableView("No Results", systemImage: "tablecells")
         } else {
             let widths = columnWidths()
             let totalWidth = markerWidth + widths.reduce(0, +)
-
+            
             ScrollView([.horizontal, .vertical]) {
                 LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     Section {
@@ -55,7 +55,7 @@ struct ResultTableView: View {
             .font(.callout.monospaced())
         }
     }
-
+    
     /// Estimate a width per column from its header and a sample of values. Only a sample is
     /// measured — walking every row would undo the laziness of the scroll view.
     private func columnWidths() -> [CGFloat] {
@@ -67,7 +67,7 @@ struct ResultTableView: View {
             return min(max(CGFloat(longest) * 8 + 24, 80), 280)
         }
     }
-
+    
     private func headerRow(widths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: markerWidth)
@@ -96,23 +96,24 @@ struct ResultTableView: View {
                 .help("Sort by \(column.name)")
             }
         }
+        .overlay(alignment: .bottom) { Divider() }
     }
-
-    private var table: some View {
-        Table(of: ResultRow.self, selection: $selection, sortOrder: $sortOrder) {
-            // A narrow marker column: Table gives no way to style a whole row, so pending
-            // edits are shown here rather than as a row tint.
-            TableColumn("") { row in
-                if dirtyRows.contains(row.id) {
+    
+    private func dataRow(at index: Int, widths: [CGFloat]) -> some View {
+        let row = rows[index]
+        return HStack(spacing: 0) {
+            Group {
+                if dirtyRows.contains(index) {
                     Image(systemName: "pencil.circle.fill")
                         .foregroundStyle(.orange)
+                        .font(.caption2)
                         .help("This row has unsaved changes")
                 } else {
                     Color.clear
                 }
             }
             .frame(width: markerWidth)
-
+            
             ForEach(widths.indices, id: \.self) { column in
                 let value = row.indices.contains(column) ? row[column] : SQLValue.null
                 Text(value.displayText)
@@ -128,11 +129,11 @@ struct ResultTableView: View {
         .contentShape(.rect)
         .onTapGesture { onSelectRow?(index) }
     }
-
+    
     private func sortDirection(for column: String) -> Bool? {
         sortOrder.first { $0.column == column }.map { $0.order == .forward }
     }
-
+    
     /// Cycle a column through ascending → descending → unsorted.
     ///
     /// Single-column: multi-column sort is rarely what someone tapping a header wants, and the
@@ -140,8 +141,8 @@ struct ResultTableView: View {
     private func toggleSort(_ column: String) {
         if let current = sortOrder.first, current.column == column {
             sortOrder = current.order == .forward
-                ? [ColumnSortComparator(column: column, order: .reverse)]
-                : []
+            ? [ColumnSortComparator(column: column, order: .reverse)]
+            : []
         } else {
             sortOrder = [ColumnSortComparator(column: column, order: .forward)]
         }
