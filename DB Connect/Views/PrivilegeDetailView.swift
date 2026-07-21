@@ -41,13 +41,9 @@ struct PrivilegeDetailView: View {
     @State private var showsDropConfirm = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            content
-            Divider()
-            actionBar
-        }
+        content
+        .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaBar(edge: .bottom) { actionBar }
         .navigationTitle(user.displayName)
         .task { await load() }
         .alert("Change Password", isPresented: $showsPasswordChange) {
@@ -66,6 +62,22 @@ struct PrivilegeDetailView: View {
     // MARK: - Header
 
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                accountLabel
+                Spacer(minLength: 12)
+                tabPicker.fixedSize()
+            }
+
+            // The navigation title already identifies the account on a phone, leaving the full
+            // row to the control that changes which set of permissions is being edited.
+            tabPicker.frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var accountLabel: some View {
         HStack(spacing: 10) {
             Image(systemName: user.isSuperuser ? "person.fill.badge.plus" : "person.circle")
                 .font(.title2)
@@ -76,16 +88,17 @@ struct PrivilegeDetailView: View {
                     Text("Superuser").font(.caption).foregroundStyle(.orange)
                 }
             }
-            Spacer()
-            Picker("View", selection: $tab) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+    }
+
+    private var tabPicker: some View {
+        Picker("View", selection: $tab) {
+            Text("General").tag(Tab.general)
+            Text("Global").tag(Tab.global)
+            Text("Schema").tag(Tab.schema)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     // MARK: - Content
@@ -156,14 +169,11 @@ struct PrivilegeDetailView: View {
 
     private var schemaTab: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Picker("Database", selection: $schemaSelection) {
-                    Text("Choose a database…").tag(String?.none)
-                    ForEach(schemaDatabaseChoices, id: \.self) { Text($0).tag(String?.some($0)) }
-                }
-                .fixedSize()
-                Spacer()
+            Picker("Database", selection: $schemaSelection) {
+                Text("Choose a database…").tag(String?.none)
+                ForEach(schemaDatabaseChoices, id: \.self) { Text($0).tag(String?.some($0)) }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
 
             Divider()
@@ -203,30 +213,49 @@ struct PrivilegeDetailView: View {
             Button("Uncheck All", action: uncheckAll)
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
     }
 
     // MARK: - Action bar
 
     private var actionBar: some View {
-        HStack {
-            if let errorMessage {
-                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red)
-                    .font(.callout)
-                    .lineLimit(2)
-            } else if isDirty {
-                Text("Unsaved changes").font(.callout).foregroundStyle(.secondary)
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                actionStatus
+                Spacer(minLength: 12)
+                actionButtons
             }
-            Spacer()
-            Button("Revert") { seedEdits(from: current) }
-                .disabled(!isDirty || isApplying)
-            Button("Apply") { Task { await apply() } }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!isDirty || isApplying)
+
+            VStack(alignment: .leading, spacing: 8) {
+                actionStatus
+                actionButtons.frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var actionStatus: some View {
+        if let errorMessage {
+            Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+                .font(.callout)
+                .lineLimit(2)
+        } else if isDirty {
+            Text("Unsaved changes").font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack {
+            Button("Revert") { seedEdits(from: current) }
+                .buttonStyle(.glass)
+                .disabled(!isDirty || isApplying)
+            Button("Apply") { Task { await apply() } }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(!isDirty || isApplying)
+        }
     }
 
     // MARK: - Schema bindings

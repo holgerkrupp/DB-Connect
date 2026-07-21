@@ -117,8 +117,12 @@ actor MySQLSession: DatabaseSession {
     }
 
     func close() async {
-        try? await connection?.close().get()
+        // Clear actor-owned state before suspending so concurrent close calls cannot both try to
+        // tear down the same channel. The local keeps MySQLConnection alive until NIO confirms
+        // the channel is inactive; releasing it any earlier trips MySQLNIO's deinit assertion.
+        let closing = connection
         connection = nil
+        try? await closing?.close().get()
     }
 
     // MARK: - Databases
@@ -193,10 +197,20 @@ actor MySQLSession: DatabaseSession {
         )
     }
 
+    func definitionSQL(for table: TableDescriptor) async throws -> String? {
+        let name = try SQLIdentifier.quote(table.name, style: .backtick)
+        let result = try await runQuery(Statement(
+            table.kind == .view ? "SHOW CREATE VIEW \(name)" : "SHOW CREATE TABLE \(name)"
+        ))
+        guard let row = result.rows.first, row.count > 1 else { return nil }
+        if case .text(let definition) = row[1] { return definition }
+        return nil
+    }
+
     private func allColumns() async throws -> [String: [ColumnDescriptor]] {
         let result = try await runQuery(Statement(
             """
-            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT
+            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = ?
             ORDER BY TABLE_NAME, ORDINAL_POSITION
@@ -215,7 +229,7 @@ actor MySQLSession: DatabaseSession {
     private func columns(of table: String) async throws -> [ColumnDescriptor] {
         let result = try await runQuery(Statement(
             """
-            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT
+            SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA
             FROM information_schema.COLUMNS
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
             ORDER BY ORDINAL_POSITION
@@ -234,13 +248,17 @@ actor MySQLSession: DatabaseSession {
         // COLUMN_KEY is "PRI" for primary keys — MySQL's own marker, no join required.
         let isPrimary: Bool = if case .text(let key) = row[4] { key == "PRI" } else { false }
         let defaultValue: String? = if case .text(let d) = row[5] { d } else { nil }
+        let isGenerated: Bool = if row.indices.contains(6), case .text(let extra) = row[6] {
+            extra.uppercased().contains("GENERATED")
+        } else { false }
 
         return ColumnDescriptor(
             name: name,
             declaredType: type,
             isNullable: nullable,
             isPrimaryKey: isPrimary,
-            defaultValue: defaultValue
+            defaultValue: defaultValue,
+            isGenerated: isGenerated
         )
     }
 
@@ -460,7 +478,7 @@ actor MySQLSession: DatabaseSession {
         case .double(let v): MySQLData(double: v)
         case .text(let v): MySQLData(string: v)
         case .date(let v): MySQLData(date: v)
-        case .blob(let d): MySQLData(string: d.base64EncodedString())
+        case .blob(let d): MySQLData(type: .blob, buffer: ByteBuffer(bytes: d))
         }
     }
 

@@ -11,6 +11,8 @@ struct UserAdminView: View {
     let session: any DatabaseSession
     let databases: [String]
     let title: String
+    /// Present for a sheet-hosted manager; nil when this view owns a separate window.
+    var onDismiss: (() -> Void)?
 
     @State private var users: [DatabaseUser] = []
     @State private var selection: DatabaseUser?
@@ -24,12 +26,22 @@ struct UserAdminView: View {
         NavigationSplitView {
             accountList
                 .navigationTitle("Accounts")
+                .navigationSubtitle(title)
                 #if os(macOS)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
                 #endif
                 .toolbar {
-                    ToolbarItemGroup {
-                        Button("Add User", systemImage: "person.badge.plus") { showsNewUser = true }
+                    if let onDismiss {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done", action: onDismiss)
+                        }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        Button("Add User", systemImage: "person.badge.plus") {
+                            showsNewUser = true
+                        }
+                    }
+                    ToolbarItem(placement: .secondaryAction) {
                         Button("Reload", systemImage: "arrow.clockwise") { Task { await load() } }
                     }
                 }
@@ -43,6 +55,7 @@ struct UserAdminView: View {
                     onDropped: { Task { await load(clearingSelection: true) } }
                 )
                 .id(selection)
+                .navigationSubtitle(title)
             } else if isLoading {
                 ProgressView("Loading accounts…")
             } else if let errorMessage {

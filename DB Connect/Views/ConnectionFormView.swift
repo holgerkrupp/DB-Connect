@@ -254,7 +254,7 @@ struct ConnectionFormView: View {
         certificateFingerprint = existing.certificateFingerprint
         // Never read the secret into the field — only report that one exists, so an edit
         // cannot accidentally round-trip a password through the UI.
-        hasStoredSecret = (try? KeychainSecretStore().secret(for: existing.id)) as? Secret != nil
+        hasStoredSecret = (try? KeychainSecretStore().secret(for: existing.id)) != nil
     }
 
     private func save() {

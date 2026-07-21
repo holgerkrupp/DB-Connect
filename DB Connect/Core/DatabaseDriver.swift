@@ -155,6 +155,13 @@ nonisolated protocol DatabaseSession: Sendable {
 
     func tables() async throws -> [TableDescriptor]
     func describe(table: String, schema: String?) async throws -> TableDescriptor
+    /// The engine's own CREATE statement, when it exposes one. Transfer exports use this in
+    /// preference to reconstructing a definition from column metadata, preserving indexes,
+    /// constraints, generated columns, collations and engine options.
+    func definitionSQL(for table: TableDescriptor) async throws -> String?
+    /// Definitions that must run only after all selected tables exist, such as PostgreSQL
+    /// foreign keys. Most engines keep everything in their primary CREATE statement.
+    func deferredDefinitionSQL(for table: TableDescriptor) async throws -> [String]
     func fetch(_ request: RowRequest) async throws -> ResultSet
 
     /// Total rows matching the request's filters, ignoring its paging.
@@ -218,6 +225,9 @@ nonisolated extension DatabaseSession {
     }
 
     func count(_ request: RowRequest) async throws -> Int? { nil }
+
+    func definitionSQL(for table: TableDescriptor) async throws -> String? { nil }
+    func deferredDefinitionSQL(for table: TableDescriptor) async throws -> [String] { [] }
 
     // User management is opt-in: drivers that do not implement it report no capability and
     // throw, so the UI never offers an action that cannot work.

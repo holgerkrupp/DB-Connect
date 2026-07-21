@@ -9,19 +9,23 @@ nonisolated struct ColumnDescriptor: Sendable, Hashable, Identifiable {
     let isNullable: Bool
     let isPrimaryKey: Bool
     let defaultValue: String?
+    /// Computed by the engine. Inserts and imports must omit it unless explicitly requested.
+    let isGenerated: Bool
 
     init(
         name: String,
         declaredType: String,
         isNullable: Bool = true,
         isPrimaryKey: Bool = false,
-        defaultValue: String? = nil
+        defaultValue: String? = nil,
+        isGenerated: Bool = false
     ) {
         self.name = name
         self.declaredType = declaredType
         self.isNullable = isNullable
         self.isPrimaryKey = isPrimaryKey
         self.defaultValue = defaultValue
+        self.isGenerated = isGenerated
     }
 }
 

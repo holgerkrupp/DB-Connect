@@ -80,7 +80,7 @@ struct ContentView: View {
                 }
                 #endif
             }
-            .safeAreaInset(edge: .bottom) {
+            .safeAreaBar(edge: .bottom) {
                 SyncStatusView()
                     .bottomBar()
             }
@@ -103,7 +103,7 @@ struct ContentView: View {
         }
         .confirmationDialog(
             "Delete “\(connectionToDelete?.name ?? "")”?",
-            isPresented: .constant(connectionToDelete != nil),
+            isPresented: $connectionToDelete.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Delete Connection", role: .destructive) {
@@ -174,9 +174,7 @@ struct ContentView: View {
 
     private func deleteConnections(at offsets: IndexSet) {
         for index in offsets {
-            let connection = connections[index]
-            try? KeychainSecretStore().delete(for: connection.id)
-            modelContext.delete(connection)
+            delete(connections[index])
         }
     }
 }

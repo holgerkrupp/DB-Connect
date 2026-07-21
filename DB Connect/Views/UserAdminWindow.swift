@@ -20,11 +20,17 @@ struct UserAdminWindow: View {
     @State private var databases: [String] = []
     @State private var windowTitle = "Users"
     @State private var errorMessage: String?
+    @State private var connectionAttemptID = UUID()
 
     var body: some View {
         Group {
             if let session {
-                UserAdminView(session: session, databases: databases, title: windowTitle)
+                UserAdminView(
+                    session: session,
+                    databases: databases,
+                    title: windowTitle,
+                    onDismiss: nil
+                )
             } else if let errorMessage {
                 ContentUnavailableView {
                     Label("Cannot Open User Manager", systemImage: "person.slash")
@@ -42,6 +48,7 @@ struct UserAdminWindow: View {
         #endif
         .task(id: connectionID) { await connect() }
         .onDisappear {
+            connectionAttemptID = UUID()
             let closing = session
             session = nil
             Task { await closing?.close() }
@@ -49,7 +56,15 @@ struct UserAdminWindow: View {
     }
 
     private func connect() async {
+        let attemptID = UUID()
+        connectionAttemptID = attemptID
         errorMessage = nil
+
+        let previousSession = session
+        session = nil
+        await previousSession?.close()
+
+        guard connectionAttemptID == attemptID else { return }
         guard let connectionID, let connection = fetchConnection(connectionID) else {
             errorMessage = "This connection is no longer available."
             return
@@ -59,12 +74,22 @@ struct UserAdminWindow: View {
             return
         }
         windowTitle = connection.name
+        var candidate: (any DatabaseSession)?
         do {
             let secret = try KeychainSecretStore().secret(for: connection.id)
             let newSession = try await driver.connect(config: connection.config, secret: secret)
-            databases = (try? await newSession.databases()) ?? []
+            candidate = newSession
+            let loadedDatabases = (try? await newSession.databases()) ?? []
+            guard connectionAttemptID == attemptID else {
+                await newSession.close()
+                return
+            }
+            databases = loadedDatabases
             session = newSession
+            candidate = nil
         } catch {
+            await candidate?.close()
+            guard connectionAttemptID == attemptID else { return }
             errorMessage = error.localizedDescription
         }
     }

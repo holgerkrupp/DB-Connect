@@ -23,46 +23,62 @@ struct PagerView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Group {
-                Button {
-                    onJump(0)
-                } label: {
-                    Image(systemName: "chevron.left.to.line")
-                }
-                .disabled(offset == 0)
-                .help("First page")
-
-                Button {
-                    onJump(max(0, offset - pageSize))
-                } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .disabled(offset == 0)
-                .help("Previous page")
-
-                Button {
-                    onJump(offset + pageSize)
-                } label: {
-                    Image(systemName: "chevron.right")
-                }
-                .disabled(isLastPage)
-                .help("Next page")
-
-                Button {
-                    // Land on the final whole page rather than a partial one past the end.
-                    guard let totalRows, totalRows > 0 else { return }
-                    onJump(max(0, ((totalRows - 1) / pageSize) * pageSize))
-                } label: {
-                    Image(systemName: "chevron.right.to.line")
-                }
-                .disabled(totalRows == nil || isLastPage)
-                .help(totalRows == nil ? "Unknown total" : "Last page")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                pageButtons
+                pageStatus
+                Spacer()
+                jumpControls
             }
-            .buttonStyle(.borderless)
 
-            Divider().frame(height: 14)
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    pageButtons
+                    pageStatus
+                    Spacer(minLength: 0)
+                }
+                jumpControls.frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .bottomBar()
+    }
 
+    private var pageButtons: some View {
+        ControlGroup {
+            Button("First page", systemImage: "chevron.left.to.line") {
+                onJump(0)
+            }
+            .labelStyle(.iconOnly)
+            .disabled(offset == 0)
+            .help("First page")
+
+            Button("Previous page", systemImage: "chevron.left") {
+                onJump(max(0, offset - pageSize))
+            }
+            .labelStyle(.iconOnly)
+            .disabled(offset == 0)
+            .help("Previous page")
+
+            Button("Next page", systemImage: "chevron.right") {
+                onJump(offset + pageSize)
+            }
+            .labelStyle(.iconOnly)
+            .disabled(isLastPage)
+            .help("Next page")
+
+            Button("Last page", systemImage: "chevron.right.to.line") {
+                // Land on the final whole page rather than a partial one past the end.
+                guard let totalRows, totalRows > 0 else { return }
+                onJump(max(0, ((totalRows - 1) / pageSize) * pageSize))
+            }
+            .labelStyle(.iconOnly)
+            .disabled(totalRows == nil || isLastPage)
+            .help(totalRows == nil ? "Unknown total" : "Last page")
+        }
+    }
+
+    private var pageStatus: some View {
+        HStack(spacing: 10) {
             Text(positionText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -71,22 +87,21 @@ struct PagerView: View {
             if isLoading {
                 ProgressView().controlSize(.mini)
             }
+        }
+    }
 
-            Spacer()
+    private var jumpControls: some View {
+        HStack(spacing: 8) {
+            TextField("Go to row", text: $jumpText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 100)
+                .focused($jumpFocused)
+                .onSubmit(jump)
+            #if os(iOS)
+                .keyboardType(.numberPad)
+            #endif
 
-            HStack(spacing: 4) {
-                Text("Go to row").font(.caption).foregroundStyle(.secondary)
-                TextField("", text: $jumpText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 70)
-                    .focused($jumpFocused)
-                    .onSubmit(jump)
-                #if os(iOS)
-                    .keyboardType(.numberPad)
-                #endif
-            }
-
-            Picker("", selection: Binding(
+            Picker("Page size", selection: Binding(
                 get: { pageSize },
                 set: { onChangePageSize($0) }
             )) {
@@ -97,7 +112,6 @@ struct PagerView: View {
             .labelsHidden()
             .frame(maxWidth: 110)
         }
-        .bottomBar()
     }
 
     private var positionText: String {

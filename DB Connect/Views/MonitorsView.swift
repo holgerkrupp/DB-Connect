@@ -6,6 +6,7 @@ import SwiftData
 struct MonitorsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.monitorScheduler) private var scheduler
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \Monitor.createdAt) private var monitors: [Monitor]
     @Query private var savedQueries: [SavedQuery]
 
@@ -28,7 +29,7 @@ struct MonitorsView: View {
         content
             .confirmationDialog(
                 "Delete “\(monitorToDelete?.title.isEmpty == false ? monitorToDelete!.title : "this monitor")”?",
-                isPresented: .constant(monitorToDelete != nil),
+                isPresented: $monitorToDelete.isPresent(),
                 titleVisibility: .visible
             ) {
                 Button("Delete Monitor", role: .destructive) {
@@ -40,8 +41,13 @@ struct MonitorsView: View {
                 Text("This removes the monitor and its recorded history on every device. The saved query it watches is untouched.")
             }
             .task {
-                await NotificationService.requestAuthorization()
-                notificationsDenied = await !NotificationService.isAuthorized()
+                await refreshNotificationAuthorization(requestIfNeeded: true)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                // System Settings changes notification authorization while this view remains
+                // alive. Refresh when the app becomes active so the banner does not stay stale.
+                Task { await refreshNotificationAuthorization() }
             }
     }
 
@@ -103,7 +109,7 @@ struct MonitorsView: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .safeAreaInset(edge: .bottom, spacing: 0) { addBar }
+        .safeAreaBar(edge: .bottom) { addBar }
     }
 
     private var addBar: some View {
@@ -117,7 +123,7 @@ struct MonitorsView: View {
                 // clickable but is not.
                 .contentShape(.rect)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.glass)
         .disabled(savedQueries.isEmpty)
         .help(savedQueries.isEmpty ? "Save a query first, then you can watch it." : "Create a monitor")
         .bottomBar()
@@ -133,6 +139,13 @@ struct MonitorsView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func refreshNotificationAuthorization(requestIfNeeded: Bool = false) async {
+        if requestIfNeeded {
+            await NotificationService.requestAuthorization()
+        }
+        notificationsDenied = await !NotificationService.isAuthorized()
     }
 
     private var emptyState: some View {

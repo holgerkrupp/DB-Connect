@@ -7,16 +7,9 @@ import SwiftUI
 struct TableListView: View {
     let tables: [TableDescriptor]
     @Binding var selection: TableDescriptor?
-
-    /// Databases on this server, and which one is open. Empty for drivers with no such concept
-    /// (SQLite), where the selector is hidden entirely.
-    var databases: [String] = []
-    @Binding var activeDatabase: String?
-    var isSwitchingDatabase = false
     /// What the connected account may do — drives which actions are offered, not just enabled.
     var schemaAdmin: SchemaAdminCapability = .none
     var onNewTable: () -> Void = {}
-    var onNewDatabase: () -> Void = {}
 
     @State private var search = ""
     @State private var expanded: Set<String> = []
@@ -39,13 +32,6 @@ struct TableListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The database selector sits above its own tables, where the relationship is
-            // obvious, rather than in the window toolbar far from the list it governs.
-            if !databases.isEmpty {
-                databaseBar
-                Divider()
-            }
-
             // An inline field rather than `.searchable`: the row grid already owns the window's
             // search field, and two searchables in one window fight over that one slot.
             HStack(spacing: 6) {
@@ -91,36 +77,9 @@ struct TableListView: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .safeAreaBar(edge: .bottom) {
             newTableBar
         }
-    }
-
-    private var databaseBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "cylinder.split.1x2")
-                .foregroundStyle(.secondary)
-                .font(.caption)
-
-            Picker("Database", selection: $activeDatabase) {
-                ForEach(databases, id: \.self) { name in
-                    Text(name).tag(Optional(name))
-                }
-            }
-            .labelsHidden()
-            .disabled(isSwitchingDatabase)
-
-            if isSwitchingDatabase {
-                ProgressView().controlSize(.small)
-            } else if schemaAdmin.canCreateDatabase {
-                Button("New Database", systemImage: "plus", action: onNewDatabase)
-                    .buttonStyle(.borderless)
-                    .labelStyle(.iconOnly)
-                    .help("Create a database on this server")
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 
     /// Kept out of the toolbar: creating a table acts on the database shown in this column, and
@@ -136,7 +95,7 @@ struct TableListView: View {
                     // to its right looks clickable but is not.
                     .contentShape(.rect)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.glass)
             .bottomBar()
         }
     }

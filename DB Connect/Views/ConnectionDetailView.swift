@@ -23,12 +23,18 @@ struct ConnectionDetailView: View {
     @State private var schemaAdmin: SchemaAdminCapability = .none
     @State private var showsNewTable = false
     @State private var showsNewDatabase = false
+    @State private var transferOperation: TransferOperation?
+    @State private var isConnecting = false
+    @State private var isLoadingSchema = false
+    /// Invalidates an older async connection attempt when the user retries or leaves the view.
+    @State private var connectionAttemptID = UUID()
     /// Lives here rather than in the console so an in-progress query survives a trip to the
     /// table browser and back.
     @State private var consoleDraft = ConsoleDraft()
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #if os(macOS)
     /// Remembered across launches — a column the user closed should stay closed.
     @AppStorage("detail.showsTableList") private var showsTableList = true
@@ -42,7 +48,7 @@ struct ConnectionDetailView: View {
                 } description: {
                     Text(connectionError)
                 } actions: {
-                    Button("Retry") { Task { await connect() } }
+                    Button("Retry") { connectIfNeeded() }
                 }
             } else if let session {
                 connectedBody(session)
@@ -52,37 +58,67 @@ struct ConnectionDetailView: View {
         }
         .navigationTitle(connection.name)
         .navigationSubtitle(activeDatabase ?? "")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(horizontalSizeClass == .compact ? .inline : .automatic)
+        #endif
         .toolbar {
-            #if !os(macOS)
-            // iOS has no table list column, so the database selector stays in the toolbar.
-            // On macOS it lives above the table list — see `TableListView`.
-            if !databases.isEmpty {
+            #if os(macOS)
+            if let session {
+                ToolbarItemGroup {
+                    serverControlItems(for: session)
+                }
+                ToolbarSpacer(.fixed)
                 ToolbarItem {
-                    Picker("Database", selection: databaseBinding) {
-                        ForEach(databases, id: \.self) { name in
-                            Text(name).tag(Optional(name))
+                    Button("Tables", systemImage: "sidebar.squares.left") {
+                        withAnimation { showsTableList.toggle() }
+                    }
+                    .help(showsTableList ? "Hide the table list" : "Show the table list")
+                }
+                ToolbarSpacer(.flexible)
+                ToolbarItemGroup(placement: .primaryAction) {
+                    modePicker(for: session)
+                        .frame(width: 160)
+                }
+            }
+            #else
+            if horizontalSizeClass == .compact, let session {
+                ToolbarItemGroup(placement: .principal) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(connection.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if let activeDatabase, !activeDatabase.isEmpty {
+                            Text(activeDatabase)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
-                    .disabled(isSwitching)
+
+                    modePicker(for: session)
+                        .frame(width: 120)
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Group {
+                        serverControlItems(for: session)
+                    }
+                    .labelStyle(.iconOnly)
                 }
             }
             #endif
-            // Shown whenever the driver has user management at all, and disabled with an
-            // explanation when this particular account may not use it. Hiding it outright left
-            // people looking for a feature they could not find.
-            if session?.capabilities.supportsUserManagement == true {
-                ToolbarItem {
-                    Button("Users", systemImage: "person.2") { openUserManager() }
-                        .disabled(!userAdmin.isAvailable)
-                        .help(userAdmin.isAvailable
-                              ? "Manage server accounts"
-                              : "This account is not allowed to manage users")
-                }
-            }
         }
         .sheet(isPresented: $showsUsers) {
             if let session {
-                UserManagementView(session: session, databases: databases)
+                if session.capabilities.supportsGranularPrivileges {
+                    UserAdminView(
+                        session: session,
+                        databases: databases,
+                        title: connection.name,
+                        onDismiss: { showsUsers = false }
+                    )
+                } else {
+                    UserManagementView(session: session, databases: databases)
+                }
             }
         }
         .sheet(isPresented: $showsNewTable) {
@@ -106,9 +142,32 @@ struct ConnectionDetailView: View {
                 }
             }
         }
+        .sheet(item: $transferOperation) { operation in
+            if let session {
+                DataTransferView(
+                    session: session,
+                    dialect: DriverRegistry.dialect(for: connection.driverID),
+                    database: activeDatabase ?? connection.database,
+                    tables: tables,
+                    selectedTable: selectedTable,
+                    initialOperation: operation,
+                    canImport: !connection.isReadOnly
+                        && session.capabilities.canRunArbitrarySQL
+                        && DriverRegistry.dialect(for: connection.driverID) != nil,
+                    canCreateTable: !connection.isReadOnly && schemaAdmin.canCreateTable,
+                    onSchemaChange: { Task { await reloadTables() } }
+                )
+            }
+        }
         .focusedSceneValue(\.connectionActions, menuActions)
-        .task { await connect() }
+        // Compact NavigationSplitView can retain the detail when Back merely hides it. Start
+        // explicitly on every appearance because a completed `.task` is not reliably restarted
+        // when that retained detail is shown again.
+        .onAppear { connectIfNeeded() }
         .onDisappear {
+            connectionAttemptID = UUID()
+            isConnecting = false
+            isLoadingSchema = false
             let closing = session
             session = nil
             Task { await closing?.close() }
@@ -127,61 +186,176 @@ struct ConnectionDetailView: View {
                     TableListView(
                         tables: tables,
                         selection: $selectedTable,
-                        databases: databases,
-                        activeDatabase: databaseBinding,
-                        isSwitchingDatabase: isSwitching,
                         schemaAdmin: schemaAdmin,
-                        onNewTable: { showsNewTable = true },
-                        onNewDatabase: { showsNewDatabase = true }
+                        onNewTable: { showsNewTable = true }
                     )
                     .frame(minWidth: 220, idealWidth: 280, maxWidth: 400)
                 }
-                pane(session)
+                workspacePane(session)
                     .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             }
             // Without this the split view sizes to its content's ideal width and sits centred,
             // leaving a gap beside the connection sidebar in SQL mode.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             #else
+            workspacePane(session)
+            #endif
+        }
+    }
+
+    /// Keeps workspace controls with the pane they affect. On macOS the table list is a sibling
+    /// column and therefore retains its own unobstructed filter; on compact devices this same
+    /// container naturally fills the pushed detail screen.
+    @ViewBuilder
+    private func workspacePane(_ session: any DatabaseSession) -> some View {
+        #if os(macOS)
+        pane(session)
+        #else
+        VStack(spacing: 0) {
+            workspaceBar(session)
             pane(session)
-            #endif
         }
-        .toolbar {
-            #if os(macOS)
-            ToolbarItem {
-                Button("Tables", systemImage: "sidebar.squares.left") {
-                    withAnimation { showsTableList.toggle() }
+        #endif
+    }
+
+    /// Compact navigation bars host both the connection actions and mode selector. Regular-width
+    /// layouts keep their larger controls in this dedicated strip.
+    @ViewBuilder
+    private func workspaceBar(_ session: any DatabaseSession) -> some View {
+        if horizontalSizeClass != .compact {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    modePicker(for: session)
+                    Spacer(minLength: 8)
+                    serverControls(for: session)
+                        .buttonStyle(.glass)
                 }
-                .help(showsTableList ? "Hide the table list" : "Show the table list")
-            }
-            #endif
-            // Drivers without arbitrary SQL (PostgREST, and any future REST driver) get no
-            // console at all, rather than one that fails on every Run.
-            if session.capabilities.canRunArbitrarySQL {
-                ToolbarItem(placement: .principal) {
-                    Picker("Mode", selection: $mode) {
-                        ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
+
+                VStack(spacing: 8) {
+                    modePicker(for: session)
+                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 12) {
+                        Spacer(minLength: 0)
+                        serverControls(for: session)
+                            .buttonStyle(.glass)
                     }
-                    .pickerStyle(.segmented)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
         }
+    }
+
+    @ViewBuilder
+    private func modePicker(for session: any DatabaseSession) -> some View {
+        // Drivers without arbitrary SQL (PostgREST, and any future REST driver) get no console
+        // selector at all, rather than one whose SQL pane fails on every Run.
+        if session.capabilities.canRunArbitrarySQL {
+            Picker("Workspace", selection: $mode) {
+                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(
+                minWidth: horizontalSizeClass == .compact ? 110 : 150,
+                idealWidth: horizontalSizeClass == .compact ? 120 : 190,
+                maxWidth: horizontalSizeClass == .compact ? 130 : 220
+            )
+        }
+    }
+
+    private func serverControls(for session: any DatabaseSession) -> some View {
+        HStack(spacing: 8) {
+            serverControlItems(for: session)
+        }
+    }
+
+    /// Individual siblings so macOS can place each control natively in a `ToolbarItemGroup`.
+    /// The inline compact layout wraps these same views in the `HStack` above.
+    @ViewBuilder
+    private func serverControlItems(for session: any DatabaseSession) -> some View {
+        if !databases.isEmpty {
+            Picker(selection: databaseBinding) {
+                ForEach(databases, id: \.self) { name in
+                    Text(name).tag(Optional(name))
+                }
+            } label: {
+                Label(activeDatabase ?? "Database", systemImage: "cylinder.split.1x2")
+                    .lineLimit(1)
+            }
+            .pickerStyle(.menu)
+            .disabled(isSwitching)
+
+            if isSwitching {
+                ProgressView()
+            }
+        }
+
+        // Show the capability even when this account cannot use it; the disabled button's
+        // help explains why the feature is unavailable.
+        if session.capabilities.supportsUserManagement {
+            Button("Users", systemImage: "person.2") { openUserManager() }
+                .labelStyle(.iconOnly)
+                .disabled(!userAdmin.isAvailable)
+                .help(userAdmin.isAvailable
+                      ? "Manage server accounts"
+                      : "This account is not allowed to manage users")
+        }
+
+        Menu("Connection Actions", systemImage: "ellipsis.circle") {
+            Button("Import Data…", systemImage: "square.and.arrow.down") {
+                transferOperation = .import
+            }
+            .disabled(connection.isReadOnly || !session.capabilities.canRunArbitrarySQL)
+            Button("Export Data…", systemImage: "square.and.arrow.up") {
+                transferOperation = .export
+            }
+            .disabled(tables.isEmpty)
+            Divider()
+            if schemaAdmin.canCreateTable {
+                Button("New Table", systemImage: "tablecells.badge.ellipsis") {
+                    showsNewTable = true
+                }
+            }
+            if schemaAdmin.canCreateDatabase {
+                Button("New Database", systemImage: "cylinder.split.1x2") {
+                    showsNewDatabase = true
+                }
+            }
+            if schemaAdmin.canCreateTable || schemaAdmin.canCreateDatabase {
+                Divider()
+            }
+            Button("Reload Schema", systemImage: "arrow.clockwise") {
+                Task { await reloadTables() }
+            }
+            Button("Reconnect", systemImage: "bolt.horizontal.circle") {
+                reconnect()
+            }
+        }
+        .labelStyle(.iconOnly)
     }
 
     /// The main working area: browser or console, depending on mode.
     @ViewBuilder
     private func pane(_ session: any DatabaseSession) -> some View {
-        switch session.capabilities.canRunArbitrarySQL ? mode : .tables {
-        case .tables:
-            TableBrowserView(
-                session: session,
-                connection: connection,
-                tables: tables,
-                selectedTable: $selectedTable,
-                showsTablePicker: !usesTableListColumn
-            )
-        case .sql:
-            SQLConsoleView(session: session, connection: connection, draft: consoleDraft)
+        Group {
+            if isLoadingSchema {
+                ProgressView("Loading schema…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                switch session.capabilities.canRunArbitrarySQL ? mode : .tables {
+                case .tables:
+                    TableBrowserView(
+                        session: session,
+                        connection: connection,
+                        tables: tables,
+                        selectedTable: $selectedTable,
+                        showsTablePicker: !usesTableListColumn
+                    )
+                case .sql:
+                    SQLConsoleView(session: session, connection: connection, draft: consoleDraft)
+                }
+            }
         }
     }
 
@@ -204,9 +378,9 @@ struct ConnectionDetailView: View {
         )
     }
 
-    /// Whether the rich, windowed account manager applies: a driver that models the full
-    /// privilege set, on a platform that can open a second window. Otherwise the simpler sheet
-    /// (`UserManagementView`) is used — iPhone, or drivers without granular privileges.
+    /// A granular account manager gets its own window where the device supports that. On a
+    /// single-window device the same manager is presented in the sheet configured above; only
+    /// drivers without granular privileges use the simpler `UserManagementView`.
     private var usesUserAdminWindow: Bool {
         supportsMultipleWindows && (session?.capabilities.supportsGranularPrivileges ?? false)
     }
@@ -219,13 +393,37 @@ struct ConnectionDetailView: View {
         }
     }
 
+    private func connectIfNeeded() {
+        guard session == nil, !isConnecting else { return }
+        isConnecting = true
+        Task { await connect() }
+    }
+
     private func connect(overrideDatabase: String? = nil) async {
+        let attemptID = UUID()
+        connectionAttemptID = attemptID
+        isConnecting = true
+        defer {
+            if connectionAttemptID == attemptID {
+                isConnecting = false
+            }
+        }
         connectionError = nil
+        isLoadingSchema = false
+
+        // Retry can be offered after schema discovery fails, by which point a database session
+        // already exists. Never replace that session without first closing it.
+        let previousSession = session
+        session = nil
+        await previousSession?.close()
+
+        guard connectionAttemptID == attemptID else { return }
         guard let driver = DriverRegistry.driver(for: connection.driverID) else {
             connectionError = "Unknown driver “\(connection.driverID)”."
             return
         }
 
+        var candidate: (any DatabaseSession)?
         do {
             let secret = try KeychainSecretStore().secret(for: connection.id)
             restoreFileAccessIfNeeded()
@@ -234,27 +432,87 @@ struct ConnectionDetailView: View {
             if let overrideDatabase { config.database = overrideDatabase }
 
             let newSession = try await driver.connect(config: config, secret: secret)
+            candidate = newSession
+            guard connectionAttemptID == attemptID else {
+                await newSession.close()
+                return
+            }
+
+            // A completed handshake is a live connection. Publish it now instead of leaving the
+            // UI on “Connecting…” while the app runs several schema and privilege queries.
             session = newSession
-            activeDatabase = await newSession.currentDatabase
-            consoleDraft.reset(for: activeDatabase ?? connection.database)
-            databases = (try? await newSession.databases()) ?? []
+            isLoadingSchema = true
+
+            // MySQLNIO's socket connect has a deadline, but a server can accept the socket and
+            // then stop answering discovery queries. Bound that phase and close the channel so
+            // the in-flight query is released rather than leaving the UI spinning indefinitely.
+            let schemaTimeout = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(20))
+                guard !Task.isCancelled, connectionAttemptID == attemptID else { return }
+                connectionAttemptID = UUID()
+                session = nil
+                isConnecting = false
+                isLoadingSchema = false
+                connectionError = "The server connected, but did not return its schema within 20 seconds. Check the network and try again."
+                await newSession.close()
+            }
+            defer { schemaTimeout.cancel() }
+
+            var resolvedDatabase = await newSession.currentDatabase
+            let resolvedDatabases = (try? await newSession.databases()) ?? []
 
             // User management is a server-wide privilege, not a per-database one, so probe it
             // here — before the early return below. Connecting without a default database (as a
             // server-level admin does) took the early-return path and left this at `.none`,
             // which disabled the Users button for accounts that can in fact manage users.
-            userAdmin = await newSession.userAdmin
+            let resolvedUserAdmin = await newSession.userAdmin
 
             // Connecting without a database is legitimate — the user picks one from the list.
-            if activeDatabase == nil, let first = databases.first, config.database.isEmpty {
-                await switchDatabase(to: first)
+            if resolvedDatabase == nil,
+               let first = resolvedDatabases.first,
+               config.database.isEmpty {
+                do {
+                    try await newSession.use(database: first)
+                    resolvedDatabase = first
+                } catch DatabaseError.unsupported {
+                    // PostgreSQL binds the database at connect time, so replace this temporary
+                    // session with one configured for the selected database.
+                    session = nil
+                    isLoadingSchema = false
+                    await newSession.close()
+                    candidate = nil
+                    guard connectionAttemptID == attemptID else { return }
+                    await connect(overrideDatabase: first)
+                    return
+                }
+            }
+
+            let resolvedTables = try await newSession.tables()
+            let resolvedSchemaAdmin = await newSession.schemaAdmin
+
+            // The view may have disappeared, or a newer Retry may have started, during any of
+            // the awaits above. In that case this attempt still owns its candidate and closes it.
+            guard connectionAttemptID == attemptID else {
+                await newSession.close()
                 return
             }
 
-            tables = try await newSession.tables()
-            selectedTable = tables.first
-            schemaAdmin = await newSession.schemaAdmin
+            candidate = nil
+            activeDatabase = resolvedDatabase
+            consoleDraft.reset(for: resolvedDatabase ?? connection.database)
+            databases = resolvedDatabases
+            userAdmin = resolvedUserAdmin
+            tables = resolvedTables
+            selectedTable = resolvedTables.first
+            schemaAdmin = resolvedSchemaAdmin
+            isLoadingSchema = false
         } catch {
+            if connectionAttemptID == attemptID {
+                session = nil
+                isLoadingSchema = false
+            }
+            await candidate?.close()
+            guard connectionAttemptID == attemptID else { return }
             connectionError = error.localizedDescription
         }
     }
@@ -306,6 +564,11 @@ struct ConnectionDetailView: View {
             newDatabase: schemaAdmin.canCreateDatabase ? { showsNewDatabase = true } : nil,
             manageUsers: session.capabilities.supportsUserManagement && userAdmin.isAvailable
                 ? { openUserManager() } : nil,
+            importData: !connection.isReadOnly
+                && session.capabilities.canRunArbitrarySQL
+                && DriverRegistry.dialect(for: connection.driverID) != nil
+                ? { transferOperation = .import } : nil,
+            exportData: tables.isEmpty ? nil : { transferOperation = .export },
             reloadSchema: { Task { await reloadTables() } },
             reconnect: reconnect,
             isTableListShown: tableListIsShown,
@@ -331,6 +594,8 @@ struct ConnectionDetailView: View {
     /// Tear the session down and dial again — the manual counterpart to the Retry button that
     /// appears after a failure, for when a connection has gone stale rather than failed outright.
     private func reconnect() {
+        connectionAttemptID = UUID()
+        isLoadingSchema = false
         let closing = session
         session = nil
         Task {

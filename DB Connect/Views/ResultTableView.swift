@@ -86,9 +86,9 @@ struct ResultTableView: View {
                         }
                         Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, 6)
                     .frame(width: widths[index], alignment: .leading)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 6)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)

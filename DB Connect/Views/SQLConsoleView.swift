@@ -35,7 +35,7 @@ struct SQLConsoleView: View {
         }
         .task { await loadSchema() }
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: .secondaryAction) {
                 historyMenu
                 savedQueriesMenu
                 Button("Save Query", systemImage: "bookmark") {
@@ -43,6 +43,8 @@ struct SQLConsoleView: View {
                     showsSavePrompt = true
                 }
                 .disabled(trimmedSQL.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
                 // The ⌘↩ shortcut lives on the Query menu item instead — binding it in both
                 // places registers it twice and the menu item stops showing its key equivalent.
                 Button("Run", systemImage: "play.fill") { run() }
@@ -71,7 +73,7 @@ struct SQLConsoleView: View {
         }
         .confirmationDialog(
             "Delete “\(queryPendingDeletion?.title ?? "")”?",
-            isPresented: .constant(queryPendingDeletion != nil),
+            isPresented: $queryPendingDeletion.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Delete Query", role: .destructive) {
@@ -230,12 +232,26 @@ struct SQLConsoleView: View {
                 )
             }
         } else {
-            ContentUnavailableView(
-                "Run a Query",
-                systemImage: "play.circle",
-                description: Text("Results appear here. ⌘↩ runs the query.")
-            )
+            ContentUnavailableView {
+                Text("Run a Query")
+            } description: {
+                emptyResultDescription
+            } actions: {
+                Button("Run Query", systemImage: "play.fill") { run() }
+                    .buttonStyle(.glassProminent)
+                    .disabled(trimmedSQL.isEmpty || isRunning)
+            }
         }
+    }
+
+    @ViewBuilder
+    private var emptyResultDescription: some View {
+        #if os(macOS)
+        Text("Results appear here. Press \(Image(systemName: "command")) \(Image(systemName: "return")) to run the query.")
+            .accessibilityLabel("Results appear here. Press Command Return to run the query.")
+        #else
+        Text("Results appear here after you run the query.")
+        #endif
     }
 
     private var savedQueriesMenu: some View {

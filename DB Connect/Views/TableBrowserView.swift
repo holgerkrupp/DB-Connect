@@ -35,6 +35,8 @@ struct TableBrowserView: View {
     @State private var previewStatements: [String] = []
     @State private var commitError: String?
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     /// Identifies which row the editor sheet is showing.
     private struct EditingRow: Identifiable {
         let id = UUID()
@@ -55,10 +57,15 @@ struct TableBrowserView: View {
                 if !filters.isEmpty {
                     filterChips
                 }
+                if horizontalSizeClass == .compact {
+                    compactTableControls
+                }
                 Divider()
                 content
-                // No divider here — `bottomBar()` draws its own, so every column's bottom strip
-                // gets the same separator in the same place.
+            }
+        }
+        .safeAreaBar(edge: .bottom) {
+            if !tables.isEmpty {
                 PagerView(
                     offset: offset,
                     pageSize: pageSize,
@@ -128,25 +135,18 @@ struct TableBrowserView: View {
                 onDiscard: { mutation in pending.removeAll { $0.id == mutation.id } }
             )
         }
-        .alert("Could Not Apply Changes", isPresented: .constant(commitError != nil)) {
+        .alert("Could Not Apply Changes", isPresented: $commitError.isPresent()) {
             Button("OK") { commitError = nil }
         } message: {
             Text(commitError ?? "")
         }
         .toolbar {
-            ToolbarItem { filterMenu }
-            if isEditable {
-                ToolbarItemGroup {
-                    Button("Add Row", systemImage: "plus") {
-                        editingRow = EditingRow(values: [:], isInsert: true)
+            if horizontalSizeClass != .compact {
+                ToolbarItem(placement: .secondaryAction) { filterMenu }
+                if isEditable {
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        rowEditingControls
                     }
-                    Button {
-                        prepareReview()
-                    } label: {
-                        Label("Review \(pending.count)", systemImage: "checklist")
-                    }
-                    .disabled(pending.isEmpty)
-                    .badge(pending.count)
                 }
             }
         }
@@ -311,7 +311,7 @@ struct TableBrowserView: View {
     }
 
     /// Menu of columns to filter on. The old grid put this in a header context menu, which
-    /// `Table` does not expose, so it lives in the toolbar instead.
+    /// `Table` does not expose, so it lives with the table actions instead.
     private var filterMenu: some View {
         Menu {
             ForEach(selectedTable?.columns ?? []) { column in
@@ -327,6 +327,37 @@ struct TableBrowserView: View {
             Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
         }
         .disabled(selectedTable == nil)
+    }
+
+    /// Compact layouts keep table-scoped actions next to the table instead of allowing the
+    /// navigation bar to hide Filter in its automatic overflow menu.
+    private var compactTableControls: some View {
+        HStack {
+            Spacer(minLength: 0)
+            ControlGroup {
+                if isEditable {
+                    rowEditingControls
+                }
+                filterMenu
+            }
+            .labelStyle(.iconOnly)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var rowEditingControls: some View {
+        Button("Add Row", systemImage: "plus") {
+            editingRow = EditingRow(values: [:], isInsert: true)
+        }
+        Button {
+            prepareReview()
+        } label: {
+            Label("Review \(pending.count)", systemImage: "checklist")
+        }
+        .disabled(pending.isEmpty)
+        .badge(pending.count)
     }
 
     private var filterChips: some View {

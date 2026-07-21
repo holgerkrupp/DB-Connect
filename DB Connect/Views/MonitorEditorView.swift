@@ -49,8 +49,7 @@ struct MonitorEditorView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Form {
+        Form {
                 Section("Monitor") {
                     TextField("Title", text: $title)
                 }
@@ -132,12 +131,10 @@ struct MonitorEditorView: View {
                 } footer: {
                     Text("Each device decides for itself whether to run this monitor, and keeps its own history. Enabling it on several devices means several notifications.")
                 }
-            }
-            .formStyle(.grouped)
-
-            actionBar
         }
+        .formStyle(.grouped)
         .safeAreaInset(edge: .top, spacing: 0) { header }
+        .safeAreaBar(edge: .bottom) { actionBar }
         .sheet(isPresented: $showsHistory) {
             if let monitor { MonitorHistoryView(monitor: monitor) }
         }
@@ -232,8 +229,6 @@ struct MonitorEditorView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var actionBar: some View {
@@ -249,14 +244,13 @@ struct MonitorEditorView: View {
                     .keyboardShortcut(.cancelAction)
             }
             Button(monitor == nil ? "Create Monitor" : "Save") { save() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
         }
+        .buttonStyle(.glass)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
     }
 
     private var canSave: Bool {
@@ -350,8 +344,8 @@ struct MonitorEditorView: View {
             databaseOptions = []
             return
         }
-        defer { Task { await session.close() } }
         databaseOptions = (try? await session.databases()) ?? []
+        await session.close()
     }
 
     private func save() {

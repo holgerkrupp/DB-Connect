@@ -72,7 +72,7 @@ struct UserManagementView: View {
         }
         .confirmationDialog(
             "Delete “\(userToDrop?.displayName ?? "")”?",
-            isPresented: .constant(userToDrop != nil),
+            isPresented: $userToDrop.isPresent(),
             titleVisibility: .visible
         ) {
             Button("Delete User", role: .destructive) {

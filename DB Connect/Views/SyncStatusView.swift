@@ -23,7 +23,7 @@ struct SyncStatusView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
         .popover(isPresented: $showsDetail) {
             detail
                 .padding()

@@ -133,9 +133,14 @@ actor MonitorRunner {
         do {
             let secret = try KeychainSecretStore().secret(for: connection.id)
             let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
-            defer { Task { await session.close() } }
-
-            let result = try await session.query(Statement(query.sql))
+            let result: ResultSet
+            do {
+                result = try await session.query(Statement(query.sql))
+            } catch {
+                await session.close()
+                return nil
+            }
+            await session.close()
             guard let row = result.rows.first else { return nil }
 
             let value: SQLValue
@@ -167,9 +172,14 @@ actor MonitorRunner {
         }
 
         let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
-        defer { Task { await session.close() } }
-
-        let result = try await session.query(Statement(query.sql))
+        let result: ResultSet
+        do {
+            result = try await session.query(Statement(query.sql))
+        } catch {
+            await session.close()
+            throw error
+        }
+        await session.close()
         return MonitorRule.Observation(
             value: result.scalar(column: monitor.comparisonColumn),
             rowCount: result.rows.count

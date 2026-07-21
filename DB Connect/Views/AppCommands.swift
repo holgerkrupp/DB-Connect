@@ -38,6 +38,8 @@ struct ConnectionActions {
     var newTable: (() -> Void)?
     var newDatabase: (() -> Void)?
     var manageUsers: (() -> Void)?
+    var importData: (() -> Void)?
+    var exportData: (() -> Void)?
 
     var reloadSchema: () -> Void
     var reconnect: () -> Void
@@ -123,6 +125,16 @@ struct AppMenuCommands: Commands {
             Button("Save Query…") { console?.saveQuery() }
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(console?.canSave != true)
+
+            Divider()
+
+            Button("Import Data…") { connection?.importData?() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .disabled(connection?.importData == nil)
+
+            Button("Export Data…") { connection?.exportData?() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(connection?.exportData == nil)
         }
 
         // MARK: View

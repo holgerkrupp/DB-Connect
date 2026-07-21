@@ -86,10 +86,35 @@ actor SQLiteSession: DatabaseSession {
         )
     }
 
+    func definitionSQL(for table: TableDescriptor) async throws -> String? {
+        let result = try runQuery(Statement(
+            "SELECT sql FROM sqlite_master WHERE name = ? AND type = ?",
+            bindings: [.text(table.name), .text(table.kind == .view ? "view" : "table")]
+        ))
+        guard case .text(let definition)? = result.rows.first?.first else { return nil }
+        return definition
+    }
+
+    func deferredDefinitionSQL(for table: TableDescriptor) async throws -> [String] {
+        let auxiliary = try runQuery(Statement(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL
+            ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name
+            """,
+            bindings: [.text(table.name)]
+        ))
+        let statements = auxiliary.rows.compactMap { row -> String? in
+            if case .text(let sql)? = row.first { return sql }
+            return nil
+        }
+        return statements
+    }
+
     private func columns(of table: String) throws -> [ColumnDescriptor] {
         // PRAGMA does not accept bound parameters, so the name must be quoted instead.
         let quoted = try SQLIdentifier.quote(table)
-        let info = try runQuery(Statement("PRAGMA table_info(\(quoted))"))
+        let info = try runQuery(Statement("PRAGMA table_xinfo(\(quoted))"))
 
         return info.rows.compactMap { row -> ColumnDescriptor? in
             guard case .text(let name) = row[1] else { return nil }
@@ -97,13 +122,15 @@ actor SQLiteSession: DatabaseSession {
             let notNull = row[3].doubleValue.map { $0 != 0 } ?? false
             let pk = row[5].doubleValue.map { $0 != 0 } ?? false
             let defaultValue: String? = if case .text(let d) = row[4] { d } else { nil }
+            let generated = row.indices.contains(6) && (row[6].doubleValue.map { $0 != 0 } ?? false)
 
             return ColumnDescriptor(
                 name: name,
                 declaredType: declared,
                 isNullable: !notNull,
                 isPrimaryKey: pk,
-                defaultValue: defaultValue
+                defaultValue: defaultValue,
+                isGenerated: generated
             )
         }
     }
