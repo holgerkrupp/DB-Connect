@@ -309,7 +309,7 @@ struct MonitorEditorView: View {
         HStack(spacing: 6) {
             TextField("Database", text: $queryDatabase)
             if isLoadingDatabases {
-                ProgressView().controlSize(.small)
+                DatabaseLoadingIndicator(size: 13)
             } else {
                 Menu {
                     if databaseOptions.isEmpty {

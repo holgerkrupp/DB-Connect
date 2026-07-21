@@ -85,7 +85,7 @@ struct PagerView: View {
                 .monospacedDigit()
 
             if isLoading {
-                ProgressView().controlSize(.mini)
+                DatabaseLoadingIndicator(size: 11)
             }
         }
     }

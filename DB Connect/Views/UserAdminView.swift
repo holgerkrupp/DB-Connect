@@ -66,7 +66,7 @@ struct UserAdminView: View {
                 .id(selection)
                 .navigationSubtitle(title)
             } else if isLoading {
-                ProgressView("Loading accounts…")
+                DatabaseLoadingView("Loading accounts…")
             } else if let errorMessage {
                 ContentUnavailableView("Cannot Manage Users", systemImage: "person.slash", description: Text(errorMessage))
             } else {
@@ -125,7 +125,8 @@ struct UserAdminView: View {
     @ViewBuilder
     private var accountList: some View {
         if isLoading && users.isEmpty {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            DatabaseLoadingView("Loading accounts…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             List(selection: $selection) {
                 ForEach(groupedNames, id: \.self) { name in

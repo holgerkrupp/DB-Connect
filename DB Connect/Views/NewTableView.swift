@@ -79,7 +79,7 @@ struct NewTableView: View {
             }
             .overlay {
                 if isCreating {
-                    ProgressView().controlSize(.large)
+                    DatabaseLoadingView("Creating table…", size: 34)
                 }
             }
         }

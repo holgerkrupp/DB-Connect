@@ -74,7 +74,7 @@ struct ConnectionDetailView: View {
             } else if let session {
                 connectedBody(session)
             } else {
-                ProgressView("Connecting…")
+                DatabaseLoadingView("Connecting…")
             }
         }
         .navigationTitle(connection.name)
@@ -299,7 +299,7 @@ struct ConnectionDetailView: View {
             .disabled(isSwitching)
 
             if isSwitching {
-                ProgressView()
+                DatabaseLoadingIndicator(size: 14)
             }
         }
 
@@ -353,7 +353,7 @@ struct ConnectionDetailView: View {
     private func pane(_ session: any DatabaseSession) -> some View {
         Group {
             if isLoadingSchema {
-                ProgressView("Loading schema…")
+                DatabaseLoadingView("Loading schema…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 switch session.capabilities.canRunArbitrarySQL ? mode : .tables {

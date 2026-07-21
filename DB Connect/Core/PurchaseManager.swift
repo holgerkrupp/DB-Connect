@@ -8,7 +8,7 @@ import StoreKit
 @MainActor
 @Observable
 final class PurchaseManager {
-    static let unlimitedConnectionsProductID = "de.holgerkrupp.DB-Connect.pro"
+    static let unlimitedConnectionsProductID = "de.holgerkrupp.DBConnect.pro"
 
     /// Matches the development escape hatch used by SymbolBuilder and IconBuilder. Shipping
     /// builds never set this environment variable.

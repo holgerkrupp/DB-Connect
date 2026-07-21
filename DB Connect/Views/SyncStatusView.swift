@@ -18,8 +18,7 @@ struct SyncStatusView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if isSyncing {
-                    ProgressView()
-                        .controlSize(.mini)
+                    DatabaseLoadingIndicator(size: 11)
                 }
             }
         }

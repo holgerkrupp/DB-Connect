@@ -40,7 +40,7 @@ struct UserAdminWindow: View {
                     Button("Retry") { Task { await connect() } }
                 }
             } else {
-                ProgressView("Connecting…")
+                DatabaseLoadingView("Connecting…")
             }
         }
         #if os(macOS)

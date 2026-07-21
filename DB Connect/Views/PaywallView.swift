@@ -61,7 +61,7 @@ struct PaywallView: View {
                     Button(action: purchase) {
                         Group {
                             if purchaseManager.isPurchasing {
-                                ProgressView().controlSize(.small)
+                                DatabaseLoadingIndicator(size: 14)
                             } else {
                                 Text(purchaseButtonTitle)
                             }

@@ -165,7 +165,8 @@ struct SQLConsoleView: View {
     @ViewBuilder
     private var results: some View {
         if isRunning {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            DatabaseLoadingView("Running query…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage = draft.errorMessage {
             ContentUnavailableView {
                 Label("Query Failed", systemImage: "exclamationmark.triangle")

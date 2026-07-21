@@ -157,9 +157,10 @@ struct DataTransferView: View {
                     ZStack {
                         Rectangle().fill(.background.opacity(0.65)).ignoresSafeArea()
                         VStack(spacing: 12) {
-                            ProgressView().controlSize(.large)
-                            Text(operation == .export ? "Preparing export…" : "Importing…")
-                                .foregroundStyle(.secondary)
+                            DatabaseLoadingView(
+                                operation == .export ? "Preparing export…" : "Importing…",
+                                size: 34
+                            )
                             Button("Cancel") { transferTask?.cancel() }
                         }
                     }

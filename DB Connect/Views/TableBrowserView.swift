@@ -324,7 +324,8 @@ struct TableBrowserView: View {
                 } : nil
             )
         } else if isLoading {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            DatabaseLoadingView("Loading rows…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

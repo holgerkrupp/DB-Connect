@@ -24,7 +24,7 @@ struct UserManagementView: View {
         NavigationStack {
             Group {
                 if isLoading {
-                    ProgressView("Loading accounts…")
+                    DatabaseLoadingView("Loading accounts…")
                 } else if let errorMessage {
                     ContentUnavailableView {
                         Label("Cannot Manage Users", systemImage: "person.slash")
