@@ -2,16 +2,27 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    let purchaseManager: PurchaseManager
+
     @Environment(\.modelContext) private var modelContext
     @Query(sort: [SortDescriptor(\Connection.sortOrder), SortDescriptor(\Connection.createdAt)])
     private var connections: [Connection]
+    @Query private var savedQueries: [SavedQuery]
+
+    @Environment(\.appNavigation) private var navigation
+    @Environment(\.monitorScheduler) private var scheduler
 
     @State private var selection: SidebarItem?
     @State private var showsNewConnection = false
+    @State private var showsPaywall = false
+    @State private var pendingPaidAction: PaidAction?
     @State private var editingConnection: Connection?
     /// A menu item is far easier to hit by accident than a context menu, and deleting a
     /// connection also drops its Keychain entry, so the menu route confirms first.
     @State private var connectionToDelete: Connection?
+    @State private var showsOnboarding = false
+    @AppStorage(DBConnectOnboarding.releaseDefaultsKey)
+    private var lastSeenOnboardingRelease = 0
     #if os(iOS)
     @State private var showsSettings = false
     #endif
@@ -20,6 +31,11 @@ struct ContentView: View {
     enum SidebarItem: Hashable {
         case connection(Connection)
         case monitors
+    }
+
+    private enum PaidAction {
+        case addConnection
+        case duplicate(UUID)
     }
 
     var body: some View {
@@ -36,7 +52,7 @@ struct ContentView: View {
                                     editingConnection = connection
                                 }
                                 Button("Duplicate", systemImage: "plus.square.on.square") {
-                                    duplicate(connection)
+                                    requestDuplicate(connection)
                                 }
                                 // Only meaningful for the connection that is actually open.
                                 if selectedConnection?.id == connection.id {
@@ -68,7 +84,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem {
                     Button("Add Connection", systemImage: "plus") {
-                        showsNewConnection = true
+                        requestNewConnection()
                     }
                 }
                 #if os(iOS)
@@ -96,10 +112,13 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showsNewConnection) {
-            ConnectionFormView()
+            ConnectionFormView(purchaseManager: purchaseManager)
         }
         .sheet(item: $editingConnection) { connection in
-            ConnectionFormView(existing: connection)
+            ConnectionFormView(purchaseManager: purchaseManager, existing: connection)
+        }
+        .sheet(isPresented: $showsPaywall, onDismiss: completePaidActionIfUnlocked) {
+            PaywallView(purchaseManager: purchaseManager)
         }
         .confirmationDialog(
             "Delete “\(connectionToDelete?.name ?? "")”?",
@@ -115,12 +134,12 @@ struct ContentView: View {
             Text("This removes the connection and its stored password. The database itself is untouched.")
         }
         .focusedSceneValue(\.connectionListActions, ConnectionListActions(
-            newConnection: { showsNewConnection = true },
+            newConnection: { requestNewConnection() },
             editSelected: selectedConnection.map { connection in
                 { editingConnection = connection }
             },
             duplicateSelected: selectedConnection.map { connection in
-                { duplicate(connection) }
+                { requestDuplicate(connection) }
             },
             deleteSelected: selectedConnection.map { connection in
                 { connectionToDelete = connection }
@@ -131,6 +150,13 @@ struct ContentView: View {
                 { selection = nil }
             }
         ))
+        .background { WidgetSnapshotSyncView() }
+        .task { handleNavigationRequest() }
+        .task { presentOnboardingIfNeeded() }
+        .onChange(of: navigation.request?.id) { _, _ in handleNavigationRequest() }
+        .sheet(isPresented: $showsOnboarding) {
+            DBConnectOnboardingView()
+        }
         #if os(iOS)
         .sheet(isPresented: $showsSettings) {
             SettingsSheet()
@@ -138,11 +164,75 @@ struct ContentView: View {
         #endif
     }
 
+    private func handleNavigationRequest() {
+        guard let request = navigation.request else { return }
+
+        switch request.destination {
+        case .savedQuery(let queryID):
+            guard let connection = savedQueries.first(where: { $0.id == queryID })?.connection else {
+                return
+            }
+            selection = .connection(connection)
+            // ConnectionDetailView consumes this after it has loaded the SQL into its draft.
+        case .monitor:
+            selection = .monitors
+            // MonitorsView consumes this after selecting the requested monitor.
+        case .monitors:
+            selection = .monitors
+            navigation.consume(request.id)
+        case .runMonitors:
+            selection = .monitors
+            navigation.consume(request.id)
+            Task { await scheduler?.runDue(force: true) }
+        }
+    }
+
+    private func presentOnboardingIfNeeded() {
+        guard DBConnectOnboardingPresentation.shared.claimAutomaticPresentation(
+            lastSeenRelease: lastSeenOnboardingRelease
+        ) else { return }
+        showsOnboarding = true
+    }
+
     /// The connection the menu commands act on. Nil while the Monitors section is selected,
     /// which is what greys those items out.
     private var selectedConnection: Connection? {
         if case .connection(let connection) = selection { return connection }
         return nil
+    }
+
+    private func requestNewConnection() {
+        guard connections.isEmpty || purchaseManager.isUnlocked else {
+            pendingPaidAction = .addConnection
+            showsPaywall = true
+            return
+        }
+        showsNewConnection = true
+    }
+
+    private func requestDuplicate(_ connection: Connection) {
+        guard connections.isEmpty || purchaseManager.isUnlocked else {
+            pendingPaidAction = .duplicate(connection.id)
+            showsPaywall = true
+            return
+        }
+        duplicate(connection)
+    }
+
+    /// Run the action only after the paywall sheet has gone away, avoiding two sheets competing
+    /// for presentation during the purchase animation.
+    private func completePaidActionIfUnlocked() {
+        defer { pendingPaidAction = nil }
+        guard purchaseManager.isUnlocked, let pendingPaidAction else { return }
+
+        switch pendingPaidAction {
+        case .addConnection:
+            showsNewConnection = true
+        case .duplicate(let id):
+            if let connection = connections.first(where: { $0.id == id }) {
+                duplicate(connection)
+            }
+        }
     }
 
     /// Copy the configuration but not the secret — a duplicate is usually a different account,
@@ -233,6 +323,6 @@ struct ConnectionRow: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(purchaseManager: PurchaseManager())
         .modelContainer(for: [Connection.self, SavedQuery.self], inMemory: true)
 }

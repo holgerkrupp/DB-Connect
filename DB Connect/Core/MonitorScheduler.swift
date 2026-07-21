@@ -53,6 +53,7 @@ final class MonitorScheduler {
     func runDue(force: Bool = false) async {
         let runner = MonitorRunner(modelContainer: container)
         await runner.runDue(force: force)
+        WidgetSnapshotPublisher.publish(container: container)
     }
 
     // MARK: - iOS background refresh

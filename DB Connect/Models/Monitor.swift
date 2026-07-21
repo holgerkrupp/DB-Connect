@@ -1,6 +1,15 @@
 import Foundation
 import SwiftData
 
+/// The two scheduling behaviors a monitor can persist. Presets such as hourly and weekly are
+/// interval schedules; a clock-time schedule runs once after that time on each calendar day.
+nonisolated enum MonitorScheduleKind: String, Sendable, CaseIterable, Identifiable {
+    case interval
+    case dailyTime
+
+    var id: String { rawValue }
+}
+
 /// A saved query that runs on a schedule and notifies when a condition fires.
 ///
 /// The *definition* syncs via CloudKit and is device-agnostic. Whether it actually runs is a
@@ -11,6 +20,9 @@ final class Monitor {
     var id: UUID = UUID()
     var title: String = ""
     var intervalMinutes: Int = 60
+    var scheduleKindRaw: String = MonitorScheduleKind.interval.rawValue
+    /// Minutes after midnight for a daily clock-time schedule.
+    var scheduledMinuteOfDay: Int = 9 * 60
     var ruleType: String = MonitorRule.Kind.changedByAtLeast.rawValue
     var threshold: Double = 1
     /// Which result column to reduce to a number. Nil means the first column of the first row,
@@ -48,6 +60,42 @@ final class Monitor {
 
     var interval: TimeInterval {
         TimeInterval(max(1, intervalMinutes) * 60)
+    }
+
+    var scheduleKind: MonitorScheduleKind {
+        get { MonitorScheduleKind(rawValue: scheduleKindRaw) ?? .interval }
+        set { scheduleKindRaw = newValue.rawValue }
+    }
+
+    var scheduleDescription: String {
+        switch scheduleKind {
+        case .dailyTime:
+            let minutes = min(max(scheduledMinuteOfDay, 0), 1439)
+            var components = DateComponents()
+            components.hour = minutes / 60
+            components.minute = minutes % 60
+            let time = Calendar.current.date(from: components)?.formatted(date: .omitted, time: .shortened)
+                ?? String(format: "%02d:%02d", minutes / 60, minutes % 60)
+            return "daily at \(time)"
+        case .interval:
+            switch intervalMinutes {
+            case 60: return "every hour"
+            case 360: return "every 6 hours"
+            case 720: return "every 12 hours"
+            case 1_440: return "every day"
+            case 10_080: return "every week"
+            default:
+                if intervalMinutes.isMultiple(of: 1_440) {
+                    let days = intervalMinutes / 1_440
+                    return "every \(days) days"
+                }
+                if intervalMinutes.isMultiple(of: 60) {
+                    let hours = intervalMinutes / 60
+                    return "every \(hours) hours"
+                }
+                return "every \(intervalMinutes) minutes"
+            }
+        }
     }
 
     /// The activation belonging to this device, if the user ever touched it here.
@@ -92,9 +140,31 @@ final class MonitorActivation {
     }
 
     var isDue: Bool {
+        isDue(at: .now)
+    }
+
+    /// Kept as a function with injectable time/calendar so calendar-day behavior remains easy to
+    /// verify. If the app was closed at the chosen time, the first later scheduler tick catches up.
+    func isDue(at now: Date, calendar: Calendar = .current) -> Bool {
         guard isEnabled else { return false }
-        guard let lastRunAt, let monitor else { return true }
-        return Date.now.timeIntervalSince(lastRunAt) >= monitor.interval
+        guard let monitor else { return false }
+
+        switch monitor.scheduleKind {
+        case .interval:
+            guard let lastRunAt else { return true }
+            return now.timeIntervalSince(lastRunAt) >= monitor.interval
+
+        case .dailyTime:
+            let minuteOfDay = min(max(monitor.scheduledMinuteOfDay, 0), 1439)
+            guard let scheduledToday = calendar.date(
+                bySettingHour: minuteOfDay / 60,
+                minute: minuteOfDay % 60,
+                second: 0,
+                of: now
+            ), now >= scheduledToday else { return false }
+            guard let lastRunAt else { return true }
+            return lastRunAt < scheduledToday
+        }
     }
 
     var symbolName: String {

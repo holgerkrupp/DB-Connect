@@ -18,13 +18,13 @@ nonisolated struct MonitorRule: Sendable, Hashable {
 
         var title: String {
             switch self {
-            case .changed: "Value changes at all"
-            case .changedByAtLeast: "Value changes by at least"
-            case .changedByPercent: "Value changes by percent"
-            case .above: "Value rises above"
-            case .below: "Value falls below"
+            case .changed: "The value changes"
+            case .changedByAtLeast: "The value changes by an amount"
+            case .changedByPercent: "The value changes by a percentage"
+            case .above: "The value goes above a threshold"
+            case .below: "The value goes below a threshold"
             case .returnsRows: "Query returns any rows"
-            case .noData: "Query returns nothing"
+            case .noData: "Query returns no rows"
             }
         }
 
@@ -32,6 +32,13 @@ nonisolated struct MonitorRule: Sendable, Hashable {
             switch self {
             case .changedByAtLeast, .changedByPercent, .above, .below: true
             case .changed, .returnsRows, .noData: false
+            }
+        }
+
+        var readsValue: Bool {
+            switch self {
+            case .returnsRows, .noData: false
+            default: true
             }
         }
     }

@@ -51,6 +51,7 @@ struct ResultTableView: View {
                     }
                 }
             }
+            .scrollBounceBehavior(.basedOnSize, axes: [.horizontal, .vertical])
             .font(.callout.monospaced())
         }
     }

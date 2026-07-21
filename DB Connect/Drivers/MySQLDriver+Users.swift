@@ -182,8 +182,30 @@ extension MySQLSession {
         case .global:
             return "*.*"
         case .database(let name):
-            return "\(try SQLIdentifier.quote(name, style: .backtick)).*"
+            return "\(try grantDatabaseIdentifier(name)).*"
         }
+    }
+
+    /// Quote a database name for a grant target.
+    ///
+    /// Unlike a plain identifier, the database name in `GRANT … ON db.*` is a `LIKE` pattern: the
+    /// server treats `_` and `%` as wildcards. To grant on a database whose name literally contains
+    /// them (e.g. `claude_test`) they must be backslash-escaped, or the grant would silently apply
+    /// to every matching database and would not round-trip with what `SHOW GRANTS` reports. The
+    /// backslash itself is that escape character, so a literal one is doubled first.
+    private static func grantDatabaseIdentifier(_ name: String) throws -> String {
+        guard !name.isEmpty else {
+            throw DatabaseError.invalidIdentifier("Database name is empty.")
+        }
+        guard !name.contains("\0") else {
+            throw DatabaseError.invalidIdentifier("Database name contains a NUL byte.")
+        }
+        let escaped = name
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "_", with: "\\_")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "`", with: "``")
+        return "`\(escaped)`"
     }
 
     /// Escape a value for use as a MySQL string literal.

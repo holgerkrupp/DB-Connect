@@ -8,6 +8,9 @@ struct NotificationTemplateEditor: View {
     @Binding var fields: [FieldDraft]
     let savedQueries: [SavedQuery]
 
+    @State private var messageStyle: MessageStyle = .automatic
+    @State private var showsAdditionalData = false
+
     /// Editing happens on drafts, not on `MonitorField` models, so cancelling a sheet leaves
     /// nothing behind in the store.
     struct FieldDraft: Identifiable, Hashable {
@@ -18,21 +21,30 @@ struct NotificationTemplateEditor: View {
         var format: FieldFormat = .automatic
     }
 
+    private enum MessageStyle: Hashable {
+        case automatic
+        case preset(String)
+        case custom
+    }
+
     var body: some View {
         Section {
-            Picker("Preset", selection: presetBinding) {
-                Text("Custom").tag(Optional<String>.none)
+            Picker("Message", selection: $messageStyle) {
+                Text("Automatic description").tag(MessageStyle.automatic)
                 ForEach(NotificationTemplate.presets) { preset in
-                    Text(preset.title).tag(Optional(preset.template))
+                    Text(preset.title).tag(MessageStyle.preset(preset.template))
                 }
+                Text("Write my own…").tag(MessageStyle.custom)
             }
 
-            TextField("Message", text: $template, axis: .vertical)
-                .lineLimit(2...4)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
+            if messageStyle == .custom {
+                TextField("Notification text", text: $template, axis: .vertical)
+                    .lineLimit(2...4)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            }
 
             LabeledContent("Preview") {
                 Text(preview)
@@ -40,73 +52,95 @@ struct NotificationTemplateEditor: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.trailing)
             }
+
+            additionalDataEditor
         } header: {
             Text("Notification")
         } footer: {
-            Text("Leave the message empty to use the automatic description. Insert values with {{token}} — built in: \(NotificationTemplate.builtInTokens.map { "{{\($0)}}" }.joined(separator: ", ")).")
+            Text(notificationFooter)
         }
-
-        Section {
-            ForEach($fields) { $field in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        TextField("token", text: $field.token)
-                            .autocorrectionDisabled()
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                            .frame(maxWidth: 120)
-                        Text("→").foregroundStyle(.secondary)
-                        Picker("", selection: $field.query) {
-                            Text("Choose query…").tag(Optional<SavedQuery>.none)
-                            ForEach(savedQueries) { query in
-                                Text(query.title).tag(Optional(query))
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    HStack {
-                        TextField("column (optional)", text: $field.column)
-                            .autocorrectionDisabled()
-                            .font(.caption)
-                        Picker("", selection: $field.format) {
-                            ForEach(FieldFormat.allCases) { format in
-                                Text(format.title).tag(format)
-                            }
-                        }
-                        .labelsHidden()
-                        .font(.caption)
-                    }
-                }
-                .padding(.vertical, 2)
+        .onAppear(perform: syncFromTemplate)
+        .onChange(of: messageStyle) { _, style in apply(style) }
+        .onChange(of: template) { _, newValue in
+            // Once the user chose a custom message, its text should never silently switch the
+            // picker back to a preset just because it happens to match one.
+            guard messageStyle != .custom, !newValue.isEmpty else { return }
+            if let preset = NotificationTemplate.presets.first(where: { $0.template == newValue }) {
+                messageStyle = .preset(preset.template)
+            } else {
+                messageStyle = .custom
             }
-            .onDelete { fields.remove(atOffsets: $0) }
-
-            Button("Add Value", systemImage: "plus") {
-                fields.append(FieldDraft(token: suggestedToken))
-            }
-        } header: {
-            Text("Values")
-        } footer: {
-            Text(fieldsFooter)
+        }
+        .onChange(of: fields) { _, newValue in
+            if !newValue.isEmpty { showsAdditionalData = true }
         }
     }
 
-    /// Selecting a preset also creates drafts for the tokens it expects, so the user is not
-    /// left with a template referencing values that resolve to nothing.
-    private var presetBinding: Binding<String?> {
-        Binding(
-            get: { NotificationTemplate.presets.first { $0.template == template }?.template },
-            set: { newValue in
-                guard let newValue,
-                      let preset = NotificationTemplate.presets.first(where: { $0.template == newValue })
-                else { return }
-                template = preset.template
-                for token in preset.suggestedFields where !fields.contains(where: { $0.token == token }) {
-                    fields.append(FieldDraft(token: token))
+    private var additionalDataEditor: some View {
+        DisclosureGroup(isExpanded: $showsAdditionalData) {
+            ForEach($fields) { $field in
+                NotificationFieldEditor(field: $field, savedQueries: savedQueries) {
+                    fields.removeAll { $0.id == field.id }
                 }
             }
-        )
+
+            Button("Add Query Result", systemImage: "plus") {
+                fields.append(FieldDraft(token: suggestedToken))
+            }
+
+            Text(fieldsFooter)
+                .font(.footnote)
+                .foregroundStyle(unresolvedTokens.isEmpty ? Color.secondary : Color.orange)
+        } label: {
+            Text(additionalDataLabel)
+        }
+    }
+
+    private var additionalDataLabel: String {
+        fields.isEmpty
+            ? "Include data from another query (optional)"
+            : "Additional query data (\(fields.count))"
+    }
+
+    private var notificationFooter: String {
+        switch messageStyle {
+        case .automatic:
+            "DB Connect will describe what changed. You do not need to write a message."
+        case .preset:
+            "The preview uses sample data. The real values are inserted when the notification is sent."
+        case .custom:
+            "Use placeholders such as {{value}}, {{previous}}, {{delta}}, {{rows}}, {{time}}, or {{date}}."
+        }
+    }
+
+    /// Selecting a preset also creates drafts for the extra tokens it expects, so the user is not
+    /// left with a template referencing data that resolves to nothing.
+    private func apply(_ style: MessageStyle) {
+        switch style {
+        case .automatic:
+            template = ""
+        case .custom:
+            break
+        case .preset(let value):
+            guard let preset = NotificationTemplate.presets.first(where: { $0.template == value }) else {
+                return
+            }
+            template = preset.template
+            for token in preset.suggestedFields where !fields.contains(where: { $0.token == token }) {
+                fields.append(FieldDraft(token: token))
+            }
+        }
+    }
+
+    private func syncFromTemplate() {
+        if template.isEmpty {
+            messageStyle = .automatic
+        } else if let preset = NotificationTemplate.presets.first(where: { $0.template == template }) {
+            messageStyle = .preset(preset.template)
+        } else {
+            messageStyle = .custom
+        }
+        showsAdditionalData = !fields.isEmpty
     }
 
     private var suggestedToken: String {
@@ -124,9 +158,9 @@ struct NotificationTemplateEditor: View {
 
     private var fieldsFooter: String {
         if !unresolvedTokens.isEmpty {
-            return "Nothing fills \(unresolvedTokens.map { "{{\($0)}}" }.joined(separator: ", ")) yet — add a value with that name."
+            return "Add a query result named \(unresolvedTokens.map { "{{\($0)}}" }.joined(separator: ", ")) to fill this placeholder."
         }
-        return "Each value runs its own saved query when the notification fires. If one fails, it shows as “—” and the rest still arrive."
+        return "Optional: each item runs a saved query only when a notification is sent, then inserts its result into a matching placeholder."
     }
 
     /// Preview with plausible stand-in values, so the shape of the message is visible before it fires.
@@ -152,5 +186,47 @@ struct NotificationTemplateEditor: View {
                 fields: sampleFields
             )
         )
+    }
+}
+
+private struct NotificationFieldEditor: View {
+    @Binding var field: NotificationTemplateEditor.FieldDraft
+    let savedQueries: [SavedQuery]
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Additional query result")
+                    .font(.callout.weight(.medium))
+                Spacer()
+                Button("Remove", systemImage: "trash", role: .destructive, action: onRemove)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+            }
+
+            TextField("Name used in message", text: $field.token)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                #endif
+
+            Picker("Saved query", selection: $field.query) {
+                Text("Choose query…").tag(Optional<SavedQuery>.none)
+                ForEach(savedQueries) { query in
+                    Text(query.title).tag(Optional(query))
+                }
+            }
+
+            TextField("Result column (optional)", text: $field.column)
+                .autocorrectionDisabled()
+
+            Picker("Format", selection: $field.format) {
+                ForEach(FieldFormat.allCases) { format in
+                    Text(format.title).tag(format)
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

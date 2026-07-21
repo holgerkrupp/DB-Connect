@@ -205,9 +205,31 @@ nonisolated enum MySQLGrantParser {
         if target == "*.*" { return .global }
         guard target.hasSuffix(".*") else { return nil }
         let dbPart = String(target.dropLast(2))
-        let name = unquoteIdentifier(dbPart)
+        // MySQL treats `_` and `%` as LIKE wildcards in a grant's database name, so a literal one
+        // is shown backslash-escaped (`claude\_test`). Undo that, or the parsed name would not
+        // match the real database and would appear as a phantom "claude\_test" entry.
+        let name = unescapeGrantWildcards(unquoteIdentifier(dbPart))
         if name == "*" || name.isEmpty { return nil }
         return .database(name)
+    }
+
+    /// Reverse MySQL's grant-name escaping: `\_` → `_`, `\%` → `%`, `\\` → `\`. A backslash always
+    /// takes the following character literally, which is exactly how the server escapes it.
+    static func unescapeGrantWildcards(_ value: String) -> String {
+        var out = ""
+        var escaped = false
+        for character in value {
+            if escaped {
+                out.append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else {
+                out.append(character)
+            }
+        }
+        if escaped { out.append("\\") }     // a lone trailing backslash is kept as-is
+        return out
     }
 
     /// Split a privilege list on commas that are not inside parentheses, so a column list such as

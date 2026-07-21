@@ -6,6 +6,8 @@ struct TableBrowserView: View {
     let connection: Connection
     let tables: [TableDescriptor]
     @Binding var selectedTable: TableDescriptor?
+    @Binding var workspaceMode: WorkspaceMode
+    var showsWorkspaceModePicker = false
     /// False when a table list column is on screen, which would make this picker a duplicate.
     var showsTablePicker = true
 
@@ -93,6 +95,12 @@ struct TableBrowserView: View {
             offset = 0
             await loadPage()
         }
+        .task(id: tables.map(\.id)) {
+            guard selectedTable.map({ selected in
+                tables.contains { $0.id == selected.id }
+            }) != true else { return }
+            selectedTable = tables.first
+        }
         .task(id: searchText) {
             // Debounce: typing should not fire a query per keystroke.
             guard !searchText.isEmpty || result != nil else { return }
@@ -106,7 +114,7 @@ struct TableBrowserView: View {
         .sheet(item: $editingFilter) { filter in
             FilterEditorView(
                 filter: filter,
-                columns: selectedTable?.columns ?? []
+                columns: filterColumns
             ) { updated in
                 if let index = filters.firstIndex(where: { $0.id == updated.id }) {
                     filters[index] = updated
@@ -116,7 +124,7 @@ struct TableBrowserView: View {
             }
         }
         .sheet(item: $editingRow) { editing in
-            if let table = selectedTable {
+            if let table = activeTable {
                 RowEditorView(
                     table: table,
                     original: editing.values,
@@ -162,11 +170,28 @@ struct TableBrowserView: View {
     /// write, and the table has a key we can target.
     private var isEditable: Bool {
         guard !connection.isReadOnly, session.capabilities.canEditRows else { return false }
-        return selectedTable?.isEditable == true
+        return activeTable?.isEditable == true
+    }
+
+    /// A menu-style picker can briefly display its first item while its optional binding is nil.
+    /// Resolve that same visible table so nearby actions never disagree with what the user sees.
+    private var activeTable: TableDescriptor? {
+        if let selectedTable,
+           tables.contains(where: { $0.id == selectedTable.id }) {
+            return selectedTable
+        }
+        return tables.first
+    }
+
+    /// Introspection normally supplies these. If it momentarily does not, the loaded result still
+    /// has enough column metadata to offer filtering for the table already on screen.
+    private var filterColumns: [ColumnDescriptor] {
+        let described = activeTable?.columns ?? []
+        return described.isEmpty ? (result?.columns ?? []) : described
     }
 
     private var dirtyRowIndices: Set<Int> {
-        guard let table = selectedTable else { return [] }
+        guard let table = activeTable else { return [] }
         let keys = Set(pending.filter { $0.kind != .insert }.map(\.keyDescription))
         guard !keys.isEmpty else { return [] }
 
@@ -197,7 +222,7 @@ struct TableBrowserView: View {
     }
 
     private func prepareReview() {
-        guard let table = selectedTable else { return }
+        guard let table = activeTable else { return }
         do {
             previewStatements = try session.preview(pending, to: table)
             showsReview = true
@@ -207,7 +232,7 @@ struct TableBrowserView: View {
     }
 
     private func applyPending() async {
-        guard let table = selectedTable else { return }
+        guard let table = activeTable else { return }
         do {
             _ = try await session.apply(pending, to: table)
             pending.removeAll()
@@ -229,14 +254,21 @@ struct TableBrowserView: View {
                             .tag(Optional(table))
                     }
                 }
-                .frame(maxWidth: 320, alignment: .leading)
-            } else if let table = selectedTable {
+                .frame(
+                    maxWidth: horizontalSizeClass == .compact ? 130 : 320,
+                    alignment: .leading
+                )
+            } else if let table = activeTable {
                 // The list column owns selection, so the header just names what is shown.
                 Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
                     .font(.headline)
             }
 
-            if let table = selectedTable, let reason = readOnlyReason(for: table) {
+            if horizontalSizeClass == .compact {
+                if showsWorkspaceModePicker {
+                    WorkspaceModePicker(selection: $workspaceMode, compact: true)
+                }
+            } else if let table = activeTable, let reason = readOnlyReason(for: table) {
                 Label(reason, systemImage: "lock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -314,7 +346,7 @@ struct TableBrowserView: View {
     /// `Table` does not expose, so it lives with the table actions instead.
     private var filterMenu: some View {
         Menu {
-            ForEach(selectedTable?.columns ?? []) { column in
+            ForEach(filterColumns) { column in
                 Menu(column.name) {
                     ForEach(FilterOperator.options(for: column)) { op in
                         Button(op.title) {
@@ -326,7 +358,7 @@ struct TableBrowserView: View {
         } label: {
             Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
         }
-        .disabled(selectedTable == nil)
+        .disabled(filterColumns.isEmpty)
     }
 
     /// Compact layouts keep table-scoped actions next to the table instead of allowing the
@@ -395,7 +427,7 @@ struct TableBrowserView: View {
     }
 
     private func loadPage() async {
-        guard let table = selectedTable else { return }
+        guard let table = activeTable else { return }
         isLoading = true
         errorMessage = nil
         result = nil

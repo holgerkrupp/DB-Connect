@@ -21,10 +21,16 @@ struct MonitorEditorView: View {
     @State private var ruleKind: MonitorRule.Kind = .changedByAtLeast
     @State private var threshold = 1.0
     @State private var intervalMinutes = 60
+    @State private var schedulePreset: SchedulePreset = .hourly
+    @State private var scheduleKind: MonitorScheduleKind = .interval
+    @State private var customIntervalValue = 1
+    @State private var customIntervalUnit: IntervalUnit = .hours
+    @State private var scheduledTime = Self.dateForTime(hour: 9, minute: 0)
     @State private var comparisonColumn = ""
     @State private var cooldownMinutes = 0
     @State private var quietStart = 0
     @State private var quietEnd = 0
+    @State private var showsNotificationLimits = false
     @State private var runsOnThisDevice = true
     @State private var messageTemplate = ""
     @State private var fieldDrafts: [NotificationTemplateEditor.FieldDraft] = []
@@ -48,6 +54,58 @@ struct MonitorEditorView: View {
         case existing(SavedQuery)
     }
 
+    /// Common schedules stay one click away. Anything outside this set uses the custom controls.
+    private enum SchedulePreset: String, CaseIterable, Identifiable {
+        case hourly
+        case sixHours
+        case twelveHours
+        case daily
+        case weekly
+        case custom
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .hourly: "Every hour"
+            case .sixHours: "Every 6 hours"
+            case .twelveHours: "Every 12 hours"
+            case .daily: "Every day"
+            case .weekly: "Every week"
+            case .custom: "Custom…"
+            }
+        }
+
+        var interval: Int? {
+            switch self {
+            case .hourly: 60
+            case .sixHours: 360
+            case .twelveHours: 720
+            case .daily: 1_440
+            case .weekly: 10_080
+            case .custom: nil
+            }
+        }
+
+        init(intervalMinutes: Int, scheduleKind: MonitorScheduleKind) {
+            guard scheduleKind == .interval,
+                  let match = Self.allCases.first(where: { $0.interval == intervalMinutes }) else {
+                self = .custom
+                return
+            }
+            self = match
+        }
+    }
+
+    private enum IntervalUnit: String, CaseIterable, Identifiable {
+        case minutes
+        case hours
+
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+        var multiplier: Int { self == .minutes ? 1 : 60 }
+    }
+
     var body: some View {
         Form {
                 Section("Monitor") {
@@ -57,25 +115,34 @@ struct MonitorEditorView: View {
                 querySection
 
                 Section {
-                    Picker("Notify when", selection: $ruleKind) {
+                    Picker("Notify me when", selection: $ruleKind) {
                         ForEach(MonitorRule.Kind.allCases) { kind in
                             Text(kind.title).tag(kind)
                         }
                     }
                     if ruleKind.usesThreshold {
-                        HStack {
-                            Text(ruleKind == .changedByPercent ? "Percent" : "Value")
-                            Spacer()
-                            TextField("Threshold", value: $threshold, format: .number)
+                        LabeledContent(thresholdLabel) {
+                            HStack(spacing: 5) {
+                                TextField(value: $threshold, format: .number) {
+                                    Text(thresholdLabel)
+                                }
+                                .labelsHidden()
                                 .multilineTextAlignment(.trailing)
                                 .frame(maxWidth: 100)
+                                if ruleKind == .changedByPercent {
+                                    Text("%")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
-                    TextField("Column (optional)", text: $comparisonColumn)
+                    if ruleKind.readsValue {
+                        TextField("Result column (optional)", text: $comparisonColumn)
+                    }
                 } header: {
                     Text("Condition")
                 } footer: {
-                    Text("Leave the column blank to use the first value of the first row — what SELECT COUNT(*) returns.")
+                    Text(conditionFooter)
                 }
 
                 NotificationTemplateEditor(
@@ -85,30 +152,72 @@ struct MonitorEditorView: View {
                 )
 
                 Section {
-                    Stepper("Every \(intervalMinutes) minutes", value: $intervalMinutes, in: 1...1440, step: 5)
-                    Stepper(
-                        cooldownMinutes == 0 ? "No repeat limit" : "At most once per \(cooldownMinutes) min",
-                        value: $cooldownMinutes, in: 0...1440, step: 5
-                    )
+                    Picker("Run query", selection: $schedulePreset) {
+                        ForEach(SchedulePreset.allCases) { preset in
+                            Text(preset.title).tag(preset)
+                        }
+                    }
+
+                    if schedulePreset == .custom {
+                        Picker("Custom schedule", selection: $scheduleKind) {
+                            Text("Repeat at an interval").tag(MonitorScheduleKind.interval)
+                            Text("At a set time each day").tag(MonitorScheduleKind.dailyTime)
+                        }
+
+                        if scheduleKind == .interval {
+                            LabeledContent("Repeat every") {
+                                HStack(spacing: 8) {
+                                    TextField("Amount", value: $customIntervalValue, format: .number)
+                                        .labelsHidden()
+                                        .multilineTextAlignment(.trailing)
+                                        .frame(width: 64)
+                                    Picker("Unit", selection: $customIntervalUnit) {
+                                        ForEach(IntervalUnit.allCases) { unit in
+                                            Text(unit.title).tag(unit)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .fixedSize()
+                                }
+                            }
+                        } else {
+                            DatePicker(
+                                "Run every day at",
+                                selection: $scheduledTime,
+                                displayedComponents: .hourAndMinute
+                            )
+                        }
+                    }
+
+                    DisclosureGroup(isExpanded: $showsNotificationLimits) {
+                        Picker("Repeat alerts", selection: $cooldownMinutes) {
+                            Text("Every time the condition is met").tag(0)
+                            Text("At most once every 15 minutes").tag(15)
+                            Text("At most once an hour").tag(60)
+                            Text("At most once every 6 hours").tag(360)
+                            Text("At most once a day").tag(1_440)
+                            if ![0, 15, 60, 360, 1_440].contains(cooldownMinutes) {
+                                Text("At most once every \(cooldownMinutes) minutes").tag(cooldownMinutes)
+                            }
+                        }
+
+                        Picker("Quiet from", selection: $quietStart) {
+                            ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) }
+                        }
+                        Picker("Quiet until", selection: $quietEnd) {
+                            ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) }
+                        }
+
+                        Text(notificationLimitsFooter)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } label: {
+                        Text("Notification limits (optional)")
+                    }
                 } header: {
                     Text("Schedule")
                 } footer: {
                     Text(scheduleFooter)
-                }
-
-                Section {
-                    Picker("Quiet from", selection: $quietStart) {
-                        ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) }
-                    }
-                    Picker("Quiet until", selection: $quietEnd) {
-                        ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) }
-                    }
-                } header: {
-                    Text("Quiet Hours")
-                } footer: {
-                    Text(quietStart == quietEnd
-                         ? "Set different times to silence notifications overnight. Monitors keep running and recording."
-                         : "Notifications are suppressed between these hours. The value is still recorded, so the next comparison stays accurate.")
                 }
 
                 Section {
@@ -141,6 +250,18 @@ struct MonitorEditorView: View {
         .onAppear(perform: populate)
         .onChange(of: querySource) { _, newValue in
             adopt(newValue)
+        }
+        .onChange(of: schedulePreset) { _, preset in
+            apply(preset)
+        }
+        .onChange(of: customIntervalValue) { _, _ in
+            updateCustomInterval()
+        }
+        .onChange(of: customIntervalUnit) { _, _ in
+            updateCustomInterval()
+        }
+        .onChange(of: scheduleKind) { _, _ in
+            updateCustomInterval()
         }
         // List databases whenever the target connection changes, so the picker can offer them.
         // A failure just leaves the free-text field, which still lets the name be typed by hand.
@@ -267,13 +388,61 @@ struct MonitorEditorView: View {
         }
     }
 
+    private var thresholdLabel: String {
+        switch ruleKind {
+        case .changedByAtLeast: "Minimum change"
+        case .changedByPercent: "Minimum change"
+        case .above: "Notify above"
+        case .below: "Notify below"
+        default: "Threshold"
+        }
+    }
+
+    private var conditionFooter: String {
+        switch ruleKind {
+        case .returnsRows:
+            "Notifies when the query returns one or more rows. No numeric value is needed."
+        case .noData:
+            "Notifies when the query returns no rows. No numeric value is needed."
+        case .changed, .changedByAtLeast, .changedByPercent:
+            "DB Connect compares the first value in the first row with the previous run. The first run establishes a baseline. Enter a result column only when the value is elsewhere."
+        case .above, .below:
+            "DB Connect checks the first value in the first row. Enter a result column only when the value is elsewhere."
+        }
+    }
+
     /// The honest bit: on iOS the interval is a request, not a guarantee.
     private var scheduleFooter: String {
         #if os(macOS)
-        "While DB Connect is running, this interval is kept accurately."
+        "\(scheduleSummary). Runs while DB Connect is open."
         #else
-        "iOS decides when background checks actually run — often less than once an hour, and not at all if the app is rarely opened. The monitor is always checked when you open the app."
+        "\(scheduleSummary). iOS decides when background checks run, so intervals and clock times are requests rather than guarantees. DB Connect also checks when you open the app."
         #endif
+    }
+
+    private var scheduleSummary: String {
+        if scheduleKind == .dailyTime, schedulePreset == .custom {
+            return "Runs every day at \(scheduledTime.formatted(date: .omitted, time: .shortened))"
+        }
+        let minutes = schedulePreset.interval ?? intervalMinutes
+        switch minutes {
+        case 60: return "Runs every hour"
+        case 360: return "Runs every 6 hours"
+        case 720: return "Runs every 12 hours"
+        case 1_440: return "Runs every day"
+        case 10_080: return "Runs every week"
+        default:
+            if minutes.isMultiple(of: 60) {
+                return "Runs every \(minutes / 60) hours"
+            }
+            return "Runs every \(minutes) minutes"
+        }
+    }
+
+    private var notificationLimitsFooter: String {
+        quietStart == quietEnd
+            ? "Quiet hours are off. Set different start and end times to silence notifications while monitors keep recording."
+            : "Notifications are silenced during quiet hours. Checks and value history continue."
     }
 
     // MARK: State
@@ -296,10 +465,22 @@ struct MonitorEditorView: View {
         ruleKind = MonitorRule.Kind(rawValue: monitor.ruleType) ?? .changed
         threshold = monitor.threshold
         intervalMinutes = monitor.intervalMinutes
+        scheduleKind = monitor.scheduleKind
+        schedulePreset = SchedulePreset(
+            intervalMinutes: monitor.intervalMinutes,
+            scheduleKind: monitor.scheduleKind
+        )
+        configureCustomInterval(from: monitor.intervalMinutes)
+        scheduledTime = Self.dateForTime(
+            hour: monitor.scheduledMinuteOfDay / 60,
+            minute: monitor.scheduledMinuteOfDay % 60
+        )
         comparisonColumn = monitor.comparisonColumn ?? ""
         cooldownMinutes = monitor.cooldownMinutes
         quietStart = monitor.quietHoursStart
         quietEnd = monitor.quietHoursEnd
+        showsNotificationLimits = monitor.cooldownMinutes > 0
+            || monitor.quietHoursStart != monitor.quietHoursEnd
         runsOnThisDevice = monitor.activation(for: device.id)?.isEnabled ?? false
         messageTemplate = monitor.messageTemplate
         fieldDrafts = (monitor.fields ?? [])
@@ -370,6 +551,9 @@ struct MonitorEditorView: View {
         target.ruleType = ruleKind.rawValue
         target.threshold = threshold
         target.intervalMinutes = intervalMinutes
+        target.scheduleKind = schedulePreset == .custom ? scheduleKind : .interval
+        let timeComponents = Calendar.current.dateComponents([.hour, .minute], from: scheduledTime)
+        target.scheduledMinuteOfDay = (timeComponents.hour ?? 9) * 60 + (timeComponents.minute ?? 0)
         target.comparisonColumn = comparisonColumn.isEmpty ? nil : comparisonColumn
         target.cooldownMinutes = cooldownMinutes
         target.quietHoursStart = quietStart
@@ -408,5 +592,36 @@ struct MonitorEditorView: View {
 
         try? modelContext.save()
         onSaved(target)
+    }
+
+    private func apply(_ preset: SchedulePreset) {
+        guard let interval = preset.interval else { return }
+        scheduleKind = .interval
+        intervalMinutes = interval
+        configureCustomInterval(from: interval)
+    }
+
+    private func configureCustomInterval(from minutes: Int) {
+        if minutes.isMultiple(of: 60) {
+            customIntervalUnit = .hours
+            customIntervalValue = max(1, minutes / 60)
+        } else {
+            customIntervalUnit = .minutes
+            customIntervalValue = max(1, minutes)
+        }
+    }
+
+    private func updateCustomInterval() {
+        guard schedulePreset == .custom, scheduleKind == .interval else { return }
+        intervalMinutes = min(max(1, customIntervalValue) * customIntervalUnit.multiplier, 525_600)
+    }
+
+    private static func dateForTime(hour: Int, minute: Int) -> Date {
+        Calendar.current.date(
+            bySettingHour: min(max(hour, 0), 23),
+            minute: min(max(minute, 0), 59),
+            second: 0,
+            of: .now
+        ) ?? .now
     }
 }

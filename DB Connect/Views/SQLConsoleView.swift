@@ -8,13 +8,16 @@ struct SQLConsoleView: View {
     /// Query text, results and cached schema, owned by the parent so they survive a switch to
     /// the table browser and back.
     @Bindable var draft: ConsoleDraft
+    @Binding var workspaceMode: WorkspaceMode
+    var showsWorkspaceModePicker = false
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var isRunning = false
-    @State private var showsSavePrompt = false
-    @State private var saveTitle = ""
-    @State private var queryPendingDeletion: SavedQuery?
+    @State private var showsQueryLibrary = false
+    @State private var queryLibrarySection = QueryLibrarySection.saved
+    @State private var startsQuerySave = false
 
     @AppStorage(AppSettings.Key.identifierCorrection)
     private var correctionRaw = AppSettings.CorrectionMode.caseOnly.rawValue
@@ -25,24 +28,34 @@ struct SQLConsoleView: View {
     }
 
     var body: some View {
-        VSplitLayout {
-            VStack(spacing: 0) {
-                editor
-                suggestionBar
+        VStack(spacing: 0) {
+            if horizontalSizeClass == .compact, showsWorkspaceModePicker {
+                HStack {
+                    Spacer(minLength: 0)
+                    WorkspaceModePicker(selection: $workspaceMode, compact: true)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                Divider()
             }
-        } bottom: {
-            results
+
+            VSplitLayout {
+                VStack(spacing: 0) {
+                    editor
+                    suggestionBar
+                }
+            } bottom: {
+                results
+            }
         }
         .task { await loadSchema() }
         .toolbar {
             ToolbarItemGroup(placement: .secondaryAction) {
-                historyMenu
-                savedQueriesMenu
-                Button("Save Query", systemImage: "bookmark") {
-                    saveTitle = ""
-                    showsSavePrompt = true
+                Button("Queries", systemImage: "text.book.closed") {
+                    startsQuerySave = false
+                    showsQueryLibrary = true
                 }
-                .disabled(trimmedSQL.isEmpty)
+                .help("Saved queries and recent history")
             }
             ToolbarItem(placement: .primaryAction) {
                 // The ⌘↩ shortcut lives on the Query menu item instead — binding it in both
@@ -55,8 +68,9 @@ struct SQLConsoleView: View {
             run: { run() },
             canRun: !trimmedSQL.isEmpty && !isRunning,
             saveQuery: {
-                saveTitle = ""
-                showsSavePrompt = true
+                queryLibrarySection = .saved
+                startsQuerySave = true
+                showsQueryLibrary = true
             },
             canSave: !trimmedSQL.isEmpty,
             clearEditor: {
@@ -64,27 +78,14 @@ struct SQLConsoleView: View {
                 draft.correctionNotice = nil
             }
         ))
-        .alert("Save Query", isPresented: $showsSavePrompt) {
-            TextField("Title", text: $saveTitle)
-            Button("Save") { saveQuery() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Saved queries are stored with this connection and will sync to your other devices.")
-        }
-        .confirmationDialog(
-            "Delete “\(queryPendingDeletion?.title ?? "")”?",
-            isPresented: $queryPendingDeletion.isPresent(),
-            titleVisibility: .visible
-        ) {
-            Button("Delete Query", role: .destructive) {
-                if let queryPendingDeletion { deleteQuery(queryPendingDeletion) }
-                queryPendingDeletion = nil
-            }
-            Button("Cancel", role: .cancel) { queryPendingDeletion = nil }
-        } message: {
-            if let queryPendingDeletion {
-                Text(deleteQueryMessage(for: queryPendingDeletion))
-            }
+        .popover(isPresented: $showsQueryLibrary, arrowEdge: .top) {
+            QueryLibraryView(
+                connection: connection,
+                draft: draft,
+                selection: $queryLibrarySection,
+                startsInSaveMode: $startsQuerySave
+            )
+            .presentationCompactAdaptation(.sheet)
         }
     }
 
@@ -138,40 +139,6 @@ struct SQLConsoleView: View {
 
     private func apply(_ issues: [SQLIdentifierCorrection.Issue]) {
         draft.sql = SQLIdentifierCorrection.applying(issues, to: draft.sql)
-    }
-
-    /// One line: the statement, flattened and shortened, followed by how it turned out.
-    private func menuTitle(for entry: QueryHistoryEntry) -> String {
-        let flattened = entry.sql
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-        let collapsed = flattened.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
-        let shortened = collapsed.count > 60 ? collapsed.prefix(59) + "…" : collapsed[...]
-        return "\(entry.succeeded ? "" : "⚠︎ ")\(shortened)  —  \(entry.summary)"
-    }
-
-    private var historyMenu: some View {
-        Menu("History", systemImage: "clock.arrow.circlepath") {
-            let entries = (connection.history ?? [])
-                .filter { $0.database == draft.database }
-                .sorted { $0.executedAt > $1.executedAt }
-
-            if entries.isEmpty {
-                Text("No history yet")
-            }
-            ForEach(entries.prefix(25)) { entry in
-                // A menu item on macOS renders its title only — a second Text or an icon in a
-                // Label is dropped — so the outcome has to live in the title string itself.
-                Button(menuTitle(for: entry)) { draft.sql = entry.sql }
-            }
-            if !entries.isEmpty {
-                Divider()
-                Button("Clear History", systemImage: "trash", role: .destructive) {
-                    for entry in entries { modelContext.delete(entry) }
-                    try? modelContext.save()
-                }
-            }
-        }
     }
 
     /// Loads table and column names for autocomplete. A failure here is silent on purpose:
@@ -252,43 +219,6 @@ struct SQLConsoleView: View {
         #else
         Text("Results appear here after you run the query.")
         #endif
-    }
-
-    private var savedQueriesMenu: some View {
-        Menu("Saved Queries", systemImage: "book") {
-            let queries = (connection.savedQueries ?? []).sorted { $0.createdAt < $1.createdAt }
-            if queries.isEmpty {
-                Text("No saved queries")
-            }
-            // Primary action stays a single click: pick a query, get its SQL in the editor.
-            ForEach(queries) { query in
-                Button(query.title) { draft.sql = query.sql }
-            }
-            if !queries.isEmpty {
-                Divider()
-                Menu("Delete", systemImage: "trash") {
-                    ForEach(queries) { query in
-                        Button(query.title.isEmpty ? "Untitled" : query.title, role: .destructive) {
-                            queryPendingDeletion = query
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// How many monitors would go with a query if it were deleted — the cascade removes them,
-    /// so the confirmation says so rather than letting it happen silently.
-    private func deleteQueryMessage(for query: SavedQuery) -> String {
-        let count = query.monitors?.count ?? 0
-        return count == 0
-            ? "This deletes the saved query. The database it queried is untouched."
-            : "This also deletes \(count) monitor\(count == 1 ? "" : "s") that watch this query."
-    }
-
-    private func deleteQuery(_ query: SavedQuery) {
-        modelContext.delete(query)
-        try? modelContext.save()
     }
 
     /// SELECT-shaped statements go through `query` for a grid; everything else through
@@ -374,16 +304,6 @@ struct SQLConsoleView: View {
         }
     }
 
-    private func saveQuery() {
-        guard !saveTitle.isEmpty, !trimmedSQL.isEmpty else { return }
-        let query = SavedQuery(title: saveTitle, sql: trimmedSQL)
-        query.connection = connection
-        // Record which database the query ran against, so a monitor on another device can select
-        // it before running — a server-level connection has no database of its own to fall back on.
-        query.database = draft.database
-        modelContext.insert(query)
-        try? modelContext.save()
-    }
 }
 
 /// `VSplitView` exists only on macOS; iOS gets a fixed vertical split.
@@ -411,6 +331,7 @@ struct VSplitLayout<Top: View, Bottom: View>: View {
     /// which `VSplitView` could not.
     @AppStorage("console.editorHeight") private var editorHeight = 140.0
     @State private var dragStartHeight: Double?
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         GeometryReader { proxy in
@@ -419,7 +340,11 @@ struct VSplitLayout<Top: View, Bottom: View>: View {
 
             VStack(spacing: 0) {
                 top().frame(height: height)
-                divider(maxEditor: maxEditor)
+                if horizontalSizeClass == .compact {
+                    Divider()
+                } else {
+                    divider(maxEditor: maxEditor)
+                }
                 bottom().frame(maxHeight: .infinity)
             }
         }

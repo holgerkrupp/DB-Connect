@@ -7,6 +7,7 @@ struct MonitorsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.monitorScheduler) private var scheduler
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appNavigation) private var navigation
     @Query(sort: \Monitor.createdAt) private var monitors: [Monitor]
     @Query private var savedQueries: [SavedQuery]
 
@@ -42,13 +43,23 @@ struct MonitorsView: View {
             }
             .task {
                 await refreshNotificationAuthorization(requestIfNeeded: true)
+                applyNavigationRequest()
             }
+            .onChange(of: navigation.request?.id) { _, _ in applyNavigationRequest() }
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 // System Settings changes notification authorization while this view remains
                 // alive. Refresh when the app becomes active so the banner does not stay stale.
                 Task { await refreshNotificationAuthorization() }
             }
+    }
+
+    private func applyNavigationRequest() {
+        guard let request = navigation.request,
+              case .monitor(let monitorID) = request.destination,
+              let monitor = monitors.first(where: { $0.id == monitorID }) else { return }
+        selection = .existing(monitor)
+        navigation.consume(request.id)
     }
 
     @ViewBuilder
@@ -286,7 +297,7 @@ struct MonitorRow: View {
         let condition = rule.kind.usesThreshold
             ? "\(rule.kind.title) \(MonitorRow.format(rule.threshold))"
             : rule.kind.title
-        return "\(subject) · every \(monitor.intervalMinutes) min · \(condition.lowercased())"
+        return "\(subject) · \(monitor.scheduleDescription) · \(condition.lowercased())"
     }
 
     static func format(_ value: Double) -> String {

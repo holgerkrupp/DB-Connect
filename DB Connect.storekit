@@ -1,0 +1,33 @@
+{
+  "identifier" : "5ED0C0DE-0000-4000-9000-4442434F4E4E",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : true,
+      "internalID" : "5ED0C0DE-0001-4000-9000-4442434F4E4E",
+      "localizations" : [
+        {
+          "description" : "Add unlimited database connections and servers.",
+          "displayName" : "DB Connect Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "de.holgerkrupp.DB-Connect.pro",
+      "referenceName" : "DB Connect Pro",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

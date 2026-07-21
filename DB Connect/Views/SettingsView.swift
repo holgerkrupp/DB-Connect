@@ -154,6 +154,8 @@ private struct HistorySettings: View {
 /// iOS has no Settings scene, so the same form is presented as a dismissible sheet.
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var showsDocumentation = false
+    @State private var showsOnboarding = false
 
     var body: some View {
         NavigationStack {
@@ -161,10 +163,33 @@ struct SettingsSheet: View {
                 .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .secondaryAction) {
+                        Menu("Help", systemImage: "questionmark.circle") {
+                            Button("Getting Started", systemImage: "sparkles") {
+                                showsOnboarding = true
+                            }
+                            Button("DB Connect Documentation", systemImage: "book.pages") {
+                                showsDocumentation = true
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
                     }
                 }
+        }
+        .sheet(isPresented: $showsOnboarding) {
+            DBConnectOnboardingView()
+        }
+        .sheet(isPresented: $showsDocumentation) {
+            NavigationStack {
+                DBConnectDocumentationView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showsDocumentation = false }
+                        }
+                    }
+            }
         }
     }
 }

@@ -21,6 +21,9 @@ struct UserAdminView: View {
     @State private var errorMessage: String?
 
     @State private var showsNewUser = false
+    /// The account awaiting delete confirmation, and any error from the drop itself.
+    @State private var userToDelete: DatabaseUser?
+    @State private var deletionError: String?
 
     var body: some View {
         NavigationSplitView {
@@ -40,6 +43,12 @@ struct UserAdminView: View {
                         Button("Add User", systemImage: "person.badge.plus") {
                             showsNewUser = true
                         }
+                    }
+                    ToolbarItem(placement: .secondaryAction) {
+                        Button("Delete User", systemImage: "person.badge.minus", role: .destructive) {
+                            userToDelete = selection
+                        }
+                        .disabled(selection == nil)
                     }
                     ToolbarItem(placement: .secondaryAction) {
                         Button("Reload", systemImage: "arrow.clockwise") { Task { await load() } }
@@ -72,6 +81,39 @@ struct UserAdminView: View {
                 Task { await load() }
             }
         }
+        .confirmationDialog(
+            "Delete “\(userToDelete?.displayName ?? "")”?",
+            isPresented: Binding(get: { userToDelete != nil }, set: { if !$0 { userToDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: userToDelete
+        ) { user in
+            Button("Delete User", role: .destructive) { Task { await drop(user) } }
+            Button("Cancel", role: .cancel) { userToDelete = nil }
+        } message: { user in
+            Text("This permanently removes “\(user.displayName)” and all its privileges. It cannot be undone.")
+        }
+        .alert(
+            "Could Not Delete User",
+            isPresented: Binding(get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }),
+            presenting: deletionError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    private func drop(_ user: DatabaseUser) async {
+        userToDelete = nil
+        do {
+            try await session.dropUser(user)
+            if selection == user { selection = nil }
+            await load()
+        } catch {
+            // The driver refuses to drop the account you are connected as; surface that plainly
+            // rather than leaving the button looking broken.
+            deletionError = error.localizedDescription
+        }
     }
 
     /// Databases offered on the Schema tab: the ones the connection can see, plus any the account
@@ -103,7 +145,18 @@ struct UserAdminView: View {
     }
 
     private func accountRow(_ user: DatabaseUser, hostOnly: Bool) -> some View {
-        AccountRow(user: user, hostOnly: hostOnly).tag(user)
+        AccountRow(user: user, hostOnly: hostOnly)
+            .tag(user)
+            .contextMenu {
+                Button("Delete User…", systemImage: "trash", role: .destructive) {
+                    userToDelete = user
+                }
+            }
+            .swipeActions(edge: .trailing) {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    userToDelete = user
+                }
+            }
     }
 
     /// Accounts grouped by user name so multiple hosts collapse under one entry, mirroring Sequel

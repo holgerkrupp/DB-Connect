@@ -8,6 +8,9 @@ struct ConnectionFormView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    @Query private var connections: [Connection]
+
+    let purchaseManager: PurchaseManager
     var existing: Connection?
 
     @State private var name = ""
@@ -26,6 +29,7 @@ struct ConnectionFormView: View {
     @State private var errorMessage: String?
     @State private var showsFileImporter = false
     @State private var hasStoredSecret = false
+    @State private var showsPaywall = false
 
     private var tlsFooter: String {
         switch tlsMode {
@@ -194,6 +198,9 @@ struct ConnectionFormView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showsPaywall, onDismiss: saveAfterUnlock) {
+                PaywallView(purchaseManager: purchaseManager)
+            }
         }
         #if os(macOS)
         // Sized so the whole form is visible without scrolling — TLS and certificate pinning
@@ -258,6 +265,11 @@ struct ConnectionFormView: View {
     }
 
     private func save() {
+        guard existing != nil || connections.isEmpty || purchaseManager.isUnlocked else {
+            showsPaywall = true
+            return
+        }
+
         let connection = existing ?? Connection(name: name, driverID: driverID)
         connection.name = name
         connection.driverID = driverID
@@ -290,6 +302,10 @@ struct ConnectionFormView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func saveAfterUnlock() {
+        if purchaseManager.isUnlocked { save() }
     }
 }
 

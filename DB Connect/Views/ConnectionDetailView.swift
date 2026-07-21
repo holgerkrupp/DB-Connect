@@ -1,19 +1,39 @@
 import SwiftUI
 
+enum WorkspaceMode: String, CaseIterable {
+    case tables = "Tables"
+    case sql = "SQL"
+}
+
+struct WorkspaceModePicker: View {
+    @Binding var selection: WorkspaceMode
+    var compact = false
+
+    var body: some View {
+        Picker("Workspace", selection: $selection) {
+            ForEach(WorkspaceMode.allCases, id: \.self) { Text($0.rawValue) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(
+            minWidth: compact ? 100 : 150,
+            idealWidth: compact ? 110 : 190,
+            maxWidth: compact ? 120 : 220
+        )
+    }
+}
+
 /// Owns the live `DatabaseSession` for one connection and switches between the table browser
 /// and the SQL console.
 struct ConnectionDetailView: View {
-    let connection: Connection
+    typealias Mode = WorkspaceMode
 
-    enum Mode: String, CaseIterable {
-        case tables = "Tables"
-        case sql = "SQL"
-    }
+    let connection: Connection
 
     @State private var session: (any DatabaseSession)?
     @State private var tables: [TableDescriptor] = []
     @State private var selectedTable: TableDescriptor?
-    @State private var mode: Mode = .tables
+    @State private var mode: WorkspaceMode = .tables
     @State private var connectionError: String?
     @State private var databases: [String] = []
     @State private var activeDatabase: String?
@@ -35,6 +55,7 @@ struct ConnectionDetailView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.appNavigation) private var navigation
     #if os(macOS)
     /// Remembered across launches — a column the user closed should stay closed.
     @AppStorage("detail.showsTableList") private var showsTableList = true
@@ -64,10 +85,6 @@ struct ConnectionDetailView: View {
         .toolbar {
             #if os(macOS)
             if let session {
-                ToolbarItemGroup {
-                    serverControlItems(for: session)
-                }
-                ToolbarSpacer(.fixed)
                 ToolbarItem {
                     Button("Tables", systemImage: "sidebar.squares.left") {
                         withAnimation { showsTableList.toggle() }
@@ -75,6 +92,11 @@ struct ConnectionDetailView: View {
                     .help(showsTableList ? "Hide the table list" : "Show the table list")
                 }
                 ToolbarSpacer(.flexible)
+                ToolbarItemGroup {
+                    serverControlItems(for: session)
+                }
+                ToolbarSpacer(.fixed)
+                
                 ToolbarItemGroup(placement: .primaryAction) {
                     modePicker(for: session)
                         .frame(width: 160)
@@ -82,22 +104,6 @@ struct ConnectionDetailView: View {
             }
             #else
             if horizontalSizeClass == .compact, let session {
-                ToolbarItemGroup(placement: .principal) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(connection.name)
-                            .font(.headline)
-                            .lineLimit(1)
-                        if let activeDatabase, !activeDatabase.isEmpty {
-                            Text(activeDatabase)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    modePicker(for: session)
-                        .frame(width: 120)
-                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Group {
                         serverControlItems(for: session)
@@ -163,7 +169,11 @@ struct ConnectionDetailView: View {
         // Compact NavigationSplitView can retain the detail when Back merely hides it. Start
         // explicitly on every appearance because a completed `.task` is not reliably restarted
         // when that retained detail is shown again.
-        .onAppear { connectIfNeeded() }
+        .onAppear {
+            connectIfNeeded()
+            applyNavigationRequest()
+        }
+        .onChange(of: navigation.request?.id) { _, _ in applyNavigationRequest() }
         .onDisappear {
             connectionAttemptID = UUID()
             isConnecting = false
@@ -172,6 +182,17 @@ struct ConnectionDetailView: View {
             session = nil
             Task { await closing?.close() }
         }
+    }
+
+    private func applyNavigationRequest() {
+        guard let request = navigation.request,
+              case .savedQuery(let queryID) = request.destination,
+              let query = (connection.savedQueries ?? []).first(where: { $0.id == queryID })
+        else { return }
+
+        consoleDraft.sql = query.sql
+        mode = .sql
+        navigation.consume(request.id)
     }
 
     @ViewBuilder
@@ -251,16 +272,7 @@ struct ConnectionDetailView: View {
         // Drivers without arbitrary SQL (PostgREST, and any future REST driver) get no console
         // selector at all, rather than one whose SQL pane fails on every Run.
         if session.capabilities.canRunArbitrarySQL {
-            Picker("Workspace", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(
-                minWidth: horizontalSizeClass == .compact ? 110 : 150,
-                idealWidth: horizontalSizeClass == .compact ? 120 : 190,
-                maxWidth: horizontalSizeClass == .compact ? 130 : 220
-            )
+            WorkspaceModePicker(selection: $mode)
         }
     }
 
@@ -291,16 +303,7 @@ struct ConnectionDetailView: View {
             }
         }
 
-        // Show the capability even when this account cannot use it; the disabled button's
-        // help explains why the feature is unavailable.
-        if session.capabilities.supportsUserManagement {
-            Button("Users", systemImage: "person.2") { openUserManager() }
-                .labelStyle(.iconOnly)
-                .disabled(!userAdmin.isAvailable)
-                .help(userAdmin.isAvailable
-                      ? "Manage server accounts"
-                      : "This account is not allowed to manage users")
-        }
+
 
         Menu("Connection Actions", systemImage: "ellipsis.circle") {
             Button("Import Data…", systemImage: "square.and.arrow.down") {
@@ -324,6 +327,16 @@ struct ConnectionDetailView: View {
             }
             if schemaAdmin.canCreateTable || schemaAdmin.canCreateDatabase {
                 Divider()
+            }
+            // Show the capability even when this account cannot use it; the disabled button's
+            // help explains why the feature is unavailable.
+            if session.capabilities.supportsUserManagement {
+                Button("Users", systemImage: "person.2") { openUserManager() }
+                    //.labelStyle(.iconOnly)
+                    .disabled(!userAdmin.isAvailable)
+                    .help(userAdmin.isAvailable
+                          ? "Manage server accounts"
+                          : "This account is not allowed to manage users")
             }
             Button("Reload Schema", systemImage: "arrow.clockwise") {
                 Task { await reloadTables() }
@@ -350,10 +363,19 @@ struct ConnectionDetailView: View {
                         connection: connection,
                         tables: tables,
                         selectedTable: $selectedTable,
+                        workspaceMode: $mode,
+                        showsWorkspaceModePicker: horizontalSizeClass == .compact
+                            && session.capabilities.canRunArbitrarySQL,
                         showsTablePicker: !usesTableListColumn
                     )
                 case .sql:
-                    SQLConsoleView(session: session, connection: connection, draft: consoleDraft)
+                    SQLConsoleView(
+                        session: session,
+                        connection: connection,
+                        draft: consoleDraft,
+                        workspaceMode: $mode,
+                        showsWorkspaceModePicker: horizontalSizeClass == .compact
+                    )
                 }
             }
         }
@@ -608,9 +630,15 @@ struct ConnectionDetailView: View {
     private func reloadTables(selecting name: String? = nil) async {
         guard let session else { return }
         guard let refreshed = try? await session.tables() else { return }
+        let previousID = selectedTable?.id
         tables = refreshed
         if let name, let match = refreshed.first(where: { $0.name == name }) {
             selectedTable = match
+        } else if let previousID,
+                  let previous = refreshed.first(where: { $0.id == previousID }) {
+            selectedTable = previous
+        } else {
+            selectedTable = refreshed.first
         }
     }
 

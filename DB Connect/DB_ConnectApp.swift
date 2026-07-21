@@ -12,14 +12,18 @@ import SwiftData
 struct DB_ConnectApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
+    static let appModelContainer = makeContainer()
+
     let sharedModelContainer: ModelContainer
     @State private var scheduler: MonitorScheduler
+    @State private var purchaseManager: PurchaseManager
 
     init() {
-        let container = Self.makeContainer()
+        let container = Self.appModelContainer
         self.sharedModelContainer = container
         let scheduler = MonitorScheduler(container: container)
         _scheduler = State(initialValue: scheduler)
+        _purchaseManager = State(initialValue: PurchaseManager())
 
         #if os(iOS)
         // Registration must happen before launch finishes, so it belongs in init.
@@ -65,12 +69,19 @@ struct DB_ConnectApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(purchaseManager: purchaseManager)
                 .environment(\.monitorScheduler, scheduler)
+                .environment(\.appNavigation, AppNavigation.shared)
                 .task { scheduler.start() }
+                .onOpenURL { AppNavigation.shared.handle($0) }
         }
         .modelContainer(sharedModelContainer)
-        .commands { AppMenuCommands() }
+        .commands {
+            AppMenuCommands()
+            #if os(macOS)
+            DBConnectHelpCommands()
+            #endif
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
@@ -90,10 +101,22 @@ struct DB_ConnectApp: App {
         WindowGroup("Users", id: UserAdminWindow.sceneID, for: UUID.self) { $connectionID in
             UserAdminWindow(connectionID: connectionID)
                 .environment(\.monitorScheduler, scheduler)
+                .environment(\.appNavigation, AppNavigation.shared)
         }
         .modelContainer(sharedModelContainer)
 
         #if os(macOS)
+        Window("Getting Started", id: DBConnectDocumentationWindow.onboardingSceneID) {
+            DBConnectOnboardingView()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
+        Window("DB Connect Documentation", id: DBConnectDocumentationWindow.sceneID) {
+            DBConnectDocumentationView()
+        }
+        .defaultSize(width: 900, height: 650)
+
         // iOS reaches the same form through a toolbar button in ContentView.
         Settings {
             SettingsView()
