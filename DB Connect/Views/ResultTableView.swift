@@ -1,37 +1,23 @@
 import SwiftUI
 
-/// One row of a result set, addressable by its position in the page.
-nonisolated struct ResultRow: Identifiable, Hashable {
-    /// Index within the current page — stable for as long as the page is displayed.
-    let id: Int
-    let values: [SQLValue]
-
-    func value(at index: Int) -> SQLValue {
-        values.indices.contains(index) ? values[index] : .null
-    }
-}
-
-/// `Table` insists on a `SortComparator` to drive its header indicators, but never applies it
-/// itself — the owner of `sortOrder` decides what a sort means. The table browser re-queries
-/// the server with a new ORDER BY (its page is a window onto a larger result); the SQL console
-/// sorts the returned page in memory. Either way `compare` itself is never used, so it does
-/// nothing.
-nonisolated struct ColumnSortComparator: SortComparator, Hashable {
-    typealias Compared = ResultRow
-
+/// A sort descriptor for a result column. The database does the sorting, so this only records
+/// which column and direction the header is showing — see `TableBrowserView`, which turns it
+/// into an `ORDER BY` and re-queries.
+nonisolated struct ColumnSortComparator: Hashable {
     let column: String
     var order: SortOrder = .forward
-
-    func compare(_ lhs: ResultRow, _ rhs: ResultRow) -> ComparisonResult {
-        .orderedSame
-    }
 }
 
-/// Result grid built on SwiftUI's `Table`.
+/// Spreadsheet-style result table used on every platform and size class.
 ///
-/// `Table` is lazy, and gives resizable, reorderable columns and native sort indicators for
-/// free. On compact iPhone width it collapses to a single column, so that case falls back to a
-/// row list that opens a detail view — a twelve-column table is unusable on a phone anyway.
+/// It is a hand-built table rather than SwiftUI's `Table` on purpose. `Table` scrolls
+/// horizontally on macOS and iPadOS but collapses to a single column at compact iPhone width —
+/// so a single `Table`-based view cannot show a multi-column result on a narrow iPhone. This
+/// implementation scrolls both axes identically everywhere, which is the behaviour we want.
+///
+/// Rendering is lazy: a `LazyVStack` inside a bidirectional `ScrollView` only builds the rows
+/// on screen. That matters — the AttributeGraph crash that prompted paging came from a
+/// *non*-lazy grid materialising every cell, and this must not reintroduce it.
 struct ResultTableView: View {
     let columns: [ColumnDescriptor]
     let rows: [[SQLValue]]
@@ -40,127 +26,124 @@ struct ResultTableView: View {
     var dirtyRows: Set<Int> = []
     var onSelectRow: ((Int) -> Void)?
 
-    @State private var selection: ResultRow.ID?
-
-    #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    #endif
-
-    private var tableRows: [ResultRow] {
-        rows.enumerated().map { ResultRow(id: $0.offset, values: $0.element) }
-    }
+    private let markerWidth: CGFloat = 22
+    private let rowHeight: CGFloat = 30
 
     var body: some View {
         if columns.isEmpty {
             ContentUnavailableView("No Results", systemImage: "tablecells")
         } else {
-            #if os(iOS)
-            if sizeClass == .compact {
-                compactList
-            } else {
-                table
+            let widths = columnWidths()
+            let totalWidth = markerWidth + widths.reduce(0, +)
+
+            ScrollView([.horizontal, .vertical]) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    Section {
+                        ForEach(rows.indices, id: \.self) { index in
+                            dataRow(at: index, widths: widths)
+                                .frame(width: totalWidth, height: rowHeight, alignment: .leading)
+                            Divider()
+                        }
+                    } header: {
+                        headerRow(widths: widths)
+                            .frame(width: totalWidth, alignment: .leading)
+                            .background(.bar)
+                    }
+                }
             }
-            #else
-            table
-            #endif
+            .font(.callout.monospaced())
         }
     }
 
-    private var table: some View {
-        Table(of: ResultRow.self, selection: $selection, sortOrder: $sortOrder) {
-            // A narrow marker column: Table gives no way to style a whole row, so pending
-            // edits are shown here rather than as a row tint.
-            TableColumn("") { row in
-                if dirtyRows.contains(row.id) {
+    /// Estimate a width per column from its header and a sample of values. Only a sample is
+    /// measured — walking every row would undo the laziness of the scroll view.
+    private func columnWidths() -> [CGFloat] {
+        columns.enumerated().map { index, column in
+            var longest = column.name.count + (column.isPrimaryKey ? 2 : 0)
+            for row in rows.prefix(40) where row.indices.contains(index) {
+                longest = max(longest, min(row[index].displayText.count, 40))
+            }
+            return min(max(CGFloat(longest) * 8 + 24, 80), 280)
+        }
+    }
+
+    private func headerRow(widths: [CGFloat]) -> some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: markerWidth)
+            ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
+                Button {
+                    toggleSort(column.name)
+                } label: {
+                    HStack(spacing: 3) {
+                        if column.isPrimaryKey {
+                            Image(systemName: "key.fill").font(.system(size: 8)).foregroundStyle(.orange)
+                        }
+                        Text(column.name).fontWeight(.semibold).lineLimit(1)
+                        if let ascending = sortDirection(for: column.name) {
+                            Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.tint)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(width: widths[index], alignment: .leading)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 6)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Sort by \(column.name)")
+            }
+        }
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func dataRow(at index: Int, widths: [CGFloat]) -> some View {
+        let row = rows[index]
+        return HStack(spacing: 0) {
+            Group {
+                if dirtyRows.contains(index) {
                     Image(systemName: "pencil.circle.fill")
                         .foregroundStyle(.orange)
+                        .font(.caption2)
                         .help("This row has unsaved changes")
+                } else {
+                    Color.clear
                 }
             }
-            .width(18)
+            .frame(width: markerWidth)
 
-            TableColumnForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                TableColumn(header(for: column), sortUsing: ColumnSortComparator(column: column.name)) { row in
-                    let value = row.value(at: index)
-                    Text(value.displayText)
-                        .foregroundStyle(value.isNull ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-                        .lineLimit(1)
-                        .help(value.displayText)
-                }
-                .width(min: 60, ideal: idealWidth(for: column, at: index))
-            }
-        } rows: {
-            ForEach(tableRows) { row in
-                TableRow(row)
+            ForEach(widths.indices, id: \.self) { column in
+                let value = row.indices.contains(column) ? row[column] : SQLValue.null
+                Text(value.displayText)
+                    .foregroundStyle(value.isNull ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 6)
+                    .frame(width: widths[column], alignment: .leading)
+                    .textSelection(.enabled)
             }
         }
-        .monospacedDigit()
-        .contextMenu(forSelectionType: ResultRow.ID.self) { ids in
-            if let id = ids.first, onSelectRow != nil {
-                Button("Edit Row…", systemImage: "pencil") { onSelectRow?(id) }
-            }
-        } primaryAction: { ids in
-            // Double-click (macOS) / double-tap opens the editor.
-            if let id = ids.first { onSelectRow?(id) }
+        .background(index.isMultiple(of: 2) ? AnyShapeStyle(.quaternary.opacity(0.2)) : AnyShapeStyle(.clear))
+        .contentShape(.rect)
+        .onTapGesture { onSelectRow?(index) }
+    }
+
+    private func sortDirection(for column: String) -> Bool? {
+        sortOrder.first { $0.column == column }.map { $0.order == .forward }
+    }
+
+    /// Cycle a column through ascending → descending → unsorted.
+    ///
+    /// Single-column: multi-column sort is rarely what someone tapping a header wants, and the
+    /// resulting state is hard to read at a glance.
+    private func toggleSort(_ column: String) {
+        if let current = sortOrder.first, current.column == column {
+            sortOrder = current.order == .forward
+                ? [ColumnSortComparator(column: column, order: .reverse)]
+                : []
+        } else {
+            sortOrder = [ColumnSortComparator(column: column, order: .forward)]
         }
     }
-
-    /// A key icon in the header marks primary keys, as the old grid did.
-    private func header(for column: ColumnDescriptor) -> String {
-        column.isPrimaryKey ? "🔑 \(column.name)" : column.name
-    }
-
-    /// Estimate a starting width from the header and a sample of values. Only a sample is
-    /// measured — walking every row would undo the laziness `Table` provides.
-    private func idealWidth(for column: ColumnDescriptor, at index: Int) -> CGFloat {
-        var longest = column.name.count + (column.isPrimaryKey ? 2 : 0)
-        for row in rows.prefix(40) where row.indices.contains(index) {
-            longest = max(longest, min(row[index].displayText.count, 40))
-        }
-        return min(max(CGFloat(longest) * 8 + 24, 80), 280)
-    }
-
-    #if os(iOS)
-    /// iPhone: `Table` would show only the first column, so show a summary per row instead.
-    private var compactList: some View {
-        List(tableRows) { row in
-            Button {
-                onSelectRow?(row.id)
-            } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack {
-                        Text(primarySummary(for: row))
-                            .font(.headline)
-                            .lineLimit(1)
-                        if dirtyRows.contains(row.id) {
-                            Image(systemName: "pencil.circle.fill").foregroundStyle(.orange)
-                        }
-                    }
-                    Text(secondarySummary(for: row))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-            .buttonStyle(.plain)
-        }
-        .listStyle(.plain)
-    }
-
-    /// Lead with the primary key when there is one — it is what identifies the row.
-    private func primarySummary(for row: ResultRow) -> String {
-        if let keyIndex = columns.firstIndex(where: \.isPrimaryKey) {
-            return "\(columns[keyIndex].name): \(row.value(at: keyIndex).displayText)"
-        }
-        return row.value(at: 0).displayText
-    }
-
-    private func secondarySummary(for row: ResultRow) -> String {
-        columns.enumerated()
-            .filter { !$0.element.isPrimaryKey }
-            .prefix(4)
-            .map { "\($0.element.name): \(row.value(at: $0.offset).displayText)" }
-            .joined(separator: " · ")
-    }
-    #endif
 }
