@@ -7,6 +7,7 @@ import UIKit
 #endif
 
 enum QueryLibrarySection: String, CaseIterable, Identifiable {
+    case favorites = "Favorites"
     case saved = "Saved"
     case history = "History"
 
@@ -14,14 +15,16 @@ enum QueryLibrarySection: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .favorites: "star"
         case .saved: "bookmark"
         case .history: "clock.arrow.circlepath"
         }
     }
 }
 
-/// A small, focused home for reusable and recently-run SQL. Unlike a menu, this can show enough
-/// context to distinguish similar statements and keeps management actions attached to each row.
+/// A small, focused home for reusable and recently-run SQL. Saved queries remain the durable,
+/// monitor-friendly records they already were; favorites add snippet insertion and triggers
+/// without disturbing those existing workflows.
 struct QueryLibraryView: View {
     let connection: Connection
     @Bindable var draft: ConsoleDraft
@@ -30,6 +33,7 @@ struct QueryLibraryView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \QueryFavorite.title) private var allFavorites: [QueryFavorite]
 
     @State private var searchText = ""
     @State private var isSaving = false
@@ -38,6 +42,8 @@ struct QueryLibraryView: View {
     @State private var queryPendingDeletion: SavedQuery?
     @State private var queryPendingRename: SavedQuery?
     @State private var renameTitle = ""
+    @State private var favoritePendingDeletion: QueryFavorite?
+    @State private var favoriteEditor: FavoriteEditorState?
     @State private var showsClearHistoryConfirmation = false
     @FocusState private var focusedField: Field?
 
@@ -54,6 +60,24 @@ struct QueryLibraryView: View {
 
     private var trimmedSaveTitle: String {
         saveTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var visibleFavorites: [QueryFavorite] {
+        let favorites = QueryFavoriteExpander.visibleFavorites(all: allFavorites, for: connection)
+        guard !searchText.isEmpty else { return favorites }
+        return favorites.filter {
+            $0.title.localizedCaseInsensitiveContains(searchText)
+                || $0.sql.localizedCaseInsensitiveContains(searchText)
+                || $0.tabTrigger.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var connectionFavorites: [QueryFavorite] {
+        visibleFavorites.filter { $0.scope == .connection }
+    }
+
+    private var globalFavorites: [QueryFavorite] {
+        visibleFavorites.filter { $0.scope == .global }
     }
 
     private var savedQueries: [SavedQuery] {
@@ -86,6 +110,8 @@ struct QueryLibraryView: View {
 
             ScrollView {
                 switch selection {
+                case .favorites:
+                    favoritesContent
                 case .saved:
                     savedContent
                 case .history:
@@ -94,9 +120,10 @@ struct QueryLibraryView: View {
             }
             .scrollDismissesKeyboard(.interactively)
         }
-        .frame(minWidth: 360, idealWidth: 420, maxWidth: 520, minHeight: 420, idealHeight: 540, maxHeight: 680)
+        .frame(minWidth: 380, idealWidth: 460, maxWidth: 620, minHeight: 440, idealHeight: 620, maxHeight: 760)
         .onAppear {
             if startsInSaveMode {
+                selection = .saved
                 beginSaving()
                 startsInSaveMode = false
             }
@@ -112,6 +139,13 @@ struct QueryLibraryView: View {
             visibleHistoryCount = Self.historyPageSize
             if selection == .history { isSaving = false }
         }
+        .sheet(item: $favoriteEditor) { state in
+            FavoriteEditorSheet(
+                state: state,
+                connectionName: connection.name,
+                onSave: { saveFavoriteEditor($0) }
+            )
+        }
         .confirmationDialog(
             "Delete “\(queryPendingDeletion?.title ?? "")”?",
             isPresented: $queryPendingDeletion.isPresent(),
@@ -126,6 +160,19 @@ struct QueryLibraryView: View {
             if let queryPendingDeletion {
                 Text(deleteMessage(for: queryPendingDeletion))
             }
+        }
+        .confirmationDialog(
+            "Delete “\(favoritePendingDeletion?.title ?? "")”?",
+            isPresented: $favoritePendingDeletion.isPresent(),
+            titleVisibility: .visible
+        ) {
+            Button("Delete Favorite", role: .destructive) {
+                if let favoritePendingDeletion { delete(favoritePendingDeletion) }
+                favoritePendingDeletion = nil
+            }
+            Button("Cancel", role: .cancel) { favoritePendingDeletion = nil }
+        } message: {
+            Text("This deletes the favorite only. Saved queries, monitors, and database objects are untouched.")
         }
         .alert(
             "Rename Query",
@@ -144,14 +191,14 @@ struct QueryLibraryView: View {
             Button("Clear History", role: .destructive) { clearHistory() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the history for \(databaseName). Saved queries are untouched.")
+            Text("This removes the history for \(databaseName). Saved queries and favorites are untouched.")
         }
     }
 
     private var header: some View {
         VStack(spacing: 12) {
             HStack {
-                Label("Queries", systemImage: "text.book.closed")
+                Label("Query Library", systemImage: "text.book.closed")
                     .font(.headline)
                 Spacer()
                 Button("Close", systemImage: "xmark.circle.fill") { dismiss() }
@@ -189,7 +236,57 @@ struct QueryLibraryView: View {
     }
 
     private var searchPrompt: String {
-        selection == .saved ? "Search saved queries" : "Search history"
+        switch selection {
+        case .favorites: "Search favorites"
+        case .saved: "Search saved queries"
+        case .history: "Search history"
+        }
+    }
+
+    @ViewBuilder
+    private var favoritesContent: some View {
+        LazyVStack(spacing: 0) {
+            favoritePanel
+
+            if connectionFavorites.isEmpty && globalFavorites.isEmpty {
+                sectionHeader(title: "Favorites", count: 0)
+                emptyState(
+                    title: searchText.isEmpty ? "No Favorites Yet" : "No Matches",
+                    detail: searchText.isEmpty
+                        ? "Save a favorite for reusable snippets, tab triggers, and quick insertion."
+                        : "Try another title, trigger, or SQL fragment.",
+                    symbol: searchText.isEmpty ? "star" : "magnifyingglass"
+                )
+            } else {
+                if !connectionFavorites.isEmpty {
+                    sectionHeader(title: "This Connection", count: connectionFavorites.count)
+                    ForEach(connectionFavorites) { favorite in
+                        FavoriteLibraryRow(
+                            favorite: favorite,
+                            insert: { insertFavorite(favorite) },
+                            load: { loadFavorite(favorite) },
+                            edit: { editFavorite(favorite) },
+                            delete: { favoritePendingDeletion = favorite }
+                        )
+                        Divider().padding(.leading, 52)
+                    }
+                }
+
+                if !globalFavorites.isEmpty {
+                    sectionHeader(title: "Global", count: globalFavorites.count)
+                    ForEach(globalFavorites) { favorite in
+                        FavoriteLibraryRow(
+                            favorite: favorite,
+                            insert: { insertFavorite(favorite) },
+                            load: { loadFavorite(favorite) },
+                            edit: { editFavorite(favorite) },
+                            delete: { favoritePendingDeletion = favorite }
+                        )
+                        Divider().padding(.leading, 52)
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -203,7 +300,7 @@ struct QueryLibraryView: View {
                 emptyState(
                     title: searchText.isEmpty ? "No Saved Queries" : "No Matches",
                     detail: searchText.isEmpty
-                        ? "Save the statement in the editor to reuse it later."
+                        ? "Save the statement in the editor to reuse it later or attach it to a monitor."
                         : "Try another name or SQL fragment.",
                     symbol: searchText.isEmpty ? "bookmark" : "magnifyingglass"
                 )
@@ -222,6 +319,44 @@ struct QueryLibraryView: View {
                 }
             }
         }
+    }
+
+    private var favoritePanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                favoriteEditor = FavoriteEditorState(
+                    favorite: nil,
+                    title: "",
+                    sql: trimmedSQL,
+                    tabTrigger: "",
+                    scope: .connection
+                )
+            } label: {
+                HStack(alignment: .top, spacing: 10) {
+                    Label("Save Current SQL as Favorite", systemImage: "star.badge.plus")
+                    Spacer(minLength: 8)
+                    if !trimmedSQL.isEmpty {
+                        Text("Reuse with snippets and triggers")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(trimmedSQL.isEmpty)
+
+            Text("Favorites can be global or connection-scoped. Use `$DATABASE`, `$TABLE`, `$CONNECTION`, `${1:placeholder}`, and `$0` in favorite SQL. Typing a tab trigger then pressing Tab expands it directly in the editor.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(.yellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
     }
 
     private var savePanel: some View {
@@ -380,6 +515,51 @@ struct QueryLibraryView: View {
         isSaving = false
     }
 
+    private func insertFavorite(_ favorite: QueryFavorite) {
+        draft.pendingFavoriteInsertion = QueryFavoriteInsertionRequest(
+            sql: favorite.sql,
+            title: favorite.title,
+            mode: .insertAtCursor
+        )
+        dismiss()
+    }
+
+    private func loadFavorite(_ favorite: QueryFavorite) {
+        draft.pendingFavoriteInsertion = QueryFavoriteInsertionRequest(
+            sql: favorite.sql,
+            title: favorite.title,
+            mode: .replaceEditor
+        )
+        dismiss()
+    }
+
+    private func editFavorite(_ favorite: QueryFavorite) {
+        favoriteEditor = FavoriteEditorState(
+            favorite: favorite,
+            title: favorite.title,
+            sql: favorite.sql,
+            tabTrigger: favorite.tabTrigger,
+            scope: favorite.scope
+        )
+    }
+
+    private func saveFavoriteEditor(_ state: FavoriteEditorState) {
+        let title = state.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sql = state.sql.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trigger = state.tabTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty, !sql.isEmpty else { return }
+
+        let scopedConnection: Connection? = state.scope == .connection ? connection : nil
+        if let favorite = state.favorite {
+            favorite.update(title: title, sql: sql, tabTrigger: trigger, connection: scopedConnection)
+        } else {
+            let favorite = QueryFavorite(title: title, sql: sql, tabTrigger: trigger)
+            favorite.connection = scopedConnection
+            modelContext.insert(favorite)
+        }
+        try? modelContext.save()
+    }
+
     private func load(_ sql: String) {
         draft.sql = sql
         dismiss()
@@ -399,6 +579,11 @@ struct QueryLibraryView: View {
         try? modelContext.save()
     }
 
+    private func delete(_ favorite: QueryFavorite) {
+        modelContext.delete(favorite)
+        try? modelContext.save()
+    }
+
     private func deleteMessage(for query: SavedQuery) -> String {
         let count = query.monitors?.count ?? 0
         return count == 0
@@ -411,6 +596,76 @@ struct QueryLibraryView: View {
             modelContext.delete(entry)
         }
         try? modelContext.save()
+    }
+}
+
+private struct FavoriteLibraryRow: View {
+    let favorite: QueryFavorite
+    let insert: () -> Void
+    let load: () -> Void
+    let edit: () -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: insert) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: favorite.scope == .global ? "star.fill" : "star.bubble.fill")
+                        .frame(width: 24, height: 24)
+                        .foregroundStyle(.yellow)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(favorite.title.isEmpty ? "Untitled Favorite" : favorite.title)
+                                .font(.body.weight(.medium))
+                                .lineLimit(1)
+                            if !favorite.tabTrigger.isEmpty {
+                                Text(favorite.tabTrigger)
+                                    .font(.caption2.monospaced())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(.quaternary.opacity(0.5), in: Capsule())
+                            }
+                        }
+                        Text(favorite.sql.compactSQLPreview)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                        HStack(spacing: 5) {
+                            Text(favorite.scope.title)
+                            Text("·")
+                            Text(favorite.updatedAt, format: .dateTime.year().month(.abbreviated).day())
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Menu("Favorite Actions", systemImage: "ellipsis.circle") {
+                Button("Insert into Editor", systemImage: "arrow.down.doc", action: insert)
+                Button("Load into Editor", systemImage: "doc.text", action: load)
+                Divider()
+                Button("Edit…", systemImage: "pencil", action: edit)
+                Divider()
+                Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
+            }
+            .labelStyle(.iconOnly)
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .contextMenu {
+            Button("Insert into Editor", systemImage: "arrow.down.doc", action: insert)
+            Button("Load into Editor", systemImage: "doc.text", action: load)
+            Button("Edit…", systemImage: "pencil", action: edit)
+            Divider()
+            Button("Delete…", systemImage: "trash", role: .destructive, action: delete)
+        }
     }
 }
 
@@ -521,6 +776,96 @@ private struct HistoryLibraryRow: View {
             }
         }
     }
+}
+
+private struct FavoriteEditorSheet: View {
+    let state: FavoriteEditorState
+    let connectionName: String
+    let onSave: (FavoriteEditorState) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title: String
+    @State private var sql: String
+    @State private var tabTrigger: String
+    @State private var scope: QueryFavoriteScope
+
+    init(
+        state: FavoriteEditorState,
+        connectionName: String,
+        onSave: @escaping (FavoriteEditorState) -> Void
+    ) {
+        self.state = state
+        self.connectionName = connectionName
+        self.onSave = onSave
+        _title = State(initialValue: state.title)
+        _sql = State(initialValue: state.sql)
+        _tabTrigger = State(initialValue: state.tabTrigger)
+        _scope = State(initialValue: state.scope)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Favorite") {
+                    TextField("Title", text: $title)
+                    Picker("Scope", selection: $scope) {
+                        ForEach(QueryFavoriteScope.allCases) { scope in
+                            Text(scope == .connection ? "\(scope.title) (\(connectionName))" : scope.title)
+                                .tag(scope)
+                        }
+                    }
+                    TextField("Tab trigger", text: $tabTrigger)
+                        .autocorrectionDisabled()
+                    Text("Type the trigger in the SQL editor and press Tab to expand this favorite.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("SQL") {
+                    TextEditor(text: $sql)
+                        .font(.body.monospaced())
+                        .frame(minHeight: 240)
+                    Text("Dynamic tokens: `$DATABASE`, `$TABLE`, `$CONNECTION`, `$DATE`, `$TIME`. Snippet tokens: `${1:columns}` and `$0`.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(state.favorite == nil ? "New Favorite" : "Edit Favorite")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(FavoriteEditorState(
+                            favorite: state.favorite,
+                            title: title,
+                            sql: sql,
+                            tabTrigger: tabTrigger,
+                            scope: scope
+                        ))
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || sql.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 620, minHeight: 520)
+        #endif
+    }
+}
+
+fileprivate struct FavoriteEditorState: Identifiable {
+    let id = UUID()
+    var favorite: QueryFavorite?
+    var title: String
+    var sql: String
+    var tabTrigger: String
+    var scope: QueryFavoriteScope
 }
 
 private extension String {

@@ -15,6 +15,8 @@ struct RowEditorView: View {
     @State private var draft: [String: SQLValue] = [:]
     @State private var errorMessage: String?
 
+    private let multilineEditorHeight: CGFloat = 140
+
     var body: some View {
         NavigationStack {
             Form {
@@ -41,8 +43,9 @@ struct RowEditorView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 420, minHeight: 380)
+        .frame(minWidth: 460, minHeight: prefersExpandedEditorLayout ? 520 : 380)
         #endif
+        .presentationDetents(prefersExpandedEditorLayout ? [.medium, .large] : [.medium])
         .onAppear { draft = original }
     }
 
@@ -59,17 +62,24 @@ struct RowEditorView: View {
                     Text(value.displayText).foregroundStyle(.secondary)
                 }
             } else {
-                TextField(
-                    column.name,
-                    text: Binding(
-                        get: { value.isNull ? "" : value.displayText },
-                        set: { draft[column.name] = parse($0, for: column) }
+                if column.prefersMultilineEditor {
+                    TextEditor(text: textBinding(for: column))
+                        .frame(minHeight: multilineEditorHeight, alignment: .topLeading)
+                        .font(.body.monospaced())
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                } else {
+                    TextField(
+                        column.name,
+                        text: textBinding(for: column)
                     )
-                )
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                #endif
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                }
 
                 if column.isNullable {
                     Toggle("NULL", isOn: Binding(
@@ -97,27 +107,18 @@ struct RowEditorView: View {
         }
     }
 
-    /// Convert typed text back into a value the column can hold.
-    ///
-    /// Declared types are only a hint — SQLite in particular allows anything anywhere — so a
-    /// value that will not parse as a number is kept as text rather than silently zeroed.
-    private func parse(_ text: String, for column: ColumnDescriptor) -> SQLValue {
-        let type = column.declaredType.lowercased()
+    private var prefersExpandedEditorLayout: Bool {
+        table.columns.contains(where: \.prefersMultilineEditor)
+    }
 
-        if type.contains("int") {
-            return Int64(text).map { .integer($0) } ?? .text(text)
-        }
-        if type.contains("real") || type.contains("double") || type.contains("float") {
-            return Double(text).map { .double($0) } ?? .text(text)
-        }
-        if type.contains("bool") {
-            switch text.lowercased() {
-            case "true", "t", "1", "yes": return .bool(true)
-            case "false", "f", "0", "no": return .bool(false)
-            default: return .text(text)
-            }
-        }
-        return .text(text)
+    private func textBinding(for column: ColumnDescriptor) -> Binding<String> {
+        Binding(
+            get: {
+                let value = draft[column.name] ?? .null
+                return value.isNull ? "" : value.displayText
+            },
+            set: { draft[column.name] = column.bind($0) }
+        )
     }
 
     private var changedValues: [String: SQLValue] {

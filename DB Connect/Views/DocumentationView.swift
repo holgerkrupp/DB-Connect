@@ -138,11 +138,21 @@ private struct DBConnectDocumentationArticle: View {
                 DBConnectDocumentationBullets([
                     "SQLite opens a database file chosen from the device.",
                     "MySQL and PostgreSQL use a host, port, optional initial database, username, password, and TLS policy.",
+                    "MySQL can also connect over a local Unix socket for servers running on the same Mac.",
+                    "MySQL and PostgreSQL can be reached through an SSH tunnel on macOS when direct network access is unavailable or intentionally blocked.",
+                    "MySQL can authenticate with AWS IAM by generating a fresh RDS or Aurora auth token each time the app connects.",
                     "Supabase uses the project URL and an anon or service-role API key. DB Connect adds the REST endpoint path automatically."
                 ])
             }
             DBConnectDocumentationSection("Credentials and sync") {
-                Text("Passwords and API keys are stored separately in Keychain and are never written into the SwiftData connection record. Connection definitions sync through the user’s private iCloud database when available; secrets follow only when iCloud Keychain is enabled. SQLite files and their access remain device-specific.")
+                Text("Passwords, API keys, SSH secrets, and AWS access keys are stored separately in Keychain and are never written into the SwiftData connection record. Connection definitions sync through the user’s private iCloud database when available; secrets follow only when iCloud Keychain is enabled. SQLite files and their access remain device-specific.")
+            }
+            DBConnectDocumentationSection("Advanced transport and auth") {
+                DBConnectDocumentationBullets([
+                    "Use Local Socket for a MySQL or MariaDB server running on the same Mac. The socket path comes from the server, for example `/tmp/mysql.sock`.",
+                    "SSH tunnels use the system OpenSSH client on macOS and require a trusted host key in your normal known-hosts configuration. DB Connect refuses unknown or changed host keys instead of accepting them silently.",
+                    "AWS IAM needs the real RDS or Aurora endpoint hostname and an AWS region. The generated token is used only for login; an established database session does not need mid-session password rotation."
+                ])
             }
             DBConnectDocumentationSection("TLS choices") {
                 DBConnectDocumentationBullets([
@@ -150,6 +160,9 @@ private struct DBConnectDocumentationArticle: View {
                     "Pinned certificate trusts only the imported X.509 certificate and displays its SHA-256 fingerprint for an out-of-band comparison.",
                     "Preferred permits an unencrypted fallback. Disabled is appropriate only when another trusted layer, such as a VPN or SSH tunnel, provides protection."
                 ])
+            }
+            DBConnectDocumentationSection("What is intentionally deferred") {
+                Text("Vault- or OIDC-issued ephemeral database credentials are not shipped yet. They need a broader account-provider model, interactive browser or device-code flows, token and role selection UX, and clear trust boundaries around refresh in foreground windows, monitors, and widgets. The connection model now has typed authentication extension points so those providers can be added without redesigning every driver or form.")
             }
             DBConnectDocumentationSection("Manage connection entries") {
                 Text("Edit changes the selected definition. Duplicate copies configuration but deliberately does not copy the password or API key. Delete removes the definition and its Keychain secret; it never deletes the remote database or SQLite file.")
@@ -199,9 +212,14 @@ private struct DBConnectDocumentationArticle: View {
             DBConnectDocumentationSection("Saved queries and history") {
                 DBConnectDocumentationBullets([
                     "Save Query stores the SQL, title, connection, and selected database for reuse and monitor setup.",
+                    "Favorites are separate from saved queries: they can be global or connection-scoped, insert into the editor without replacing it, and expand placeholders like `$DATABASE`, `$TABLE`, `${1:columns}`, and `$0`.",
+                    "Assign a tab trigger to a favorite, type it in the SQL editor, then press Tab to expand the snippet in place. Query → Favorites opens the library with the keyboard shortcut Command-Option-F.",
                     "History keeps the latest statements and their duration and outcome for each connection when enabled.",
                     "Result rows and live console results are never stored or synced."
                 ])
+            }
+            DBConnectDocumentationSection("What is intentionally deferred") {
+                Text("Shell-command favorites are intentionally not included in this release. DB Connect’s favorites sync through app data and are designed to be safe to expand as plain text; executing local shell commands from those snippets would introduce a separate trust, permission, and audit model that the app does not yet explain well enough.")
             }
             DBConnectDocumentationNote(
                 systemImage: "exclamationmark.triangle.fill",
@@ -215,6 +233,7 @@ private struct DBConnectDocumentationArticle: View {
             DBConnectDocumentationSection("Export") {
                 DBConnectDocumentationBullets([
                     "SQL dump export can include structure, content, and DROP statements independently for each supported table or view.",
+                    "Large object lists can be filtered by schema or object name before selecting what to include.",
                     "CSV export writes one table or multiple table files with configurable delimiter, quote, header, line ending, NULL representation, and text encoding.",
                     "Export reads through the current connection and writes only to the destination you choose."
                 ])
@@ -223,8 +242,11 @@ private struct DBConnectDocumentationArticle: View {
                 DBConnectDocumentationSteps([
                     "Choose SQL or CSV and select a readable source file.",
                     "For CSV, confirm the header option, target table or new table name, and source-to-destination column mapping.",
-                    "Review the parsed preview and options, then start the import. Any failed statements are listed with their error and source text."
+                    "Review the parsed preview and options, then start the import. SQL previews show executable statements and their source line ranges; failed statements are reported with line numbers, error text, and the relevant SQL excerpt."
                 ])
+            }
+            DBConnectDocumentationSection("CSV workflow details") {
+                Text("When importing into a new table, DB Connect infers a starter column list from the first 200 data rows so the destination is visible before you commit. Existing-table imports keep explicit column mapping so defaults, generated columns, and conflict handling stay under your control.")
             }
             DBConnectDocumentationNote(
                 systemImage: "externaldrive.badge.exclamationmark",
@@ -243,7 +265,17 @@ private struct DBConnectDocumentationArticle: View {
                 ])
             }
             DBConnectDocumentationSection("Users and privileges") {
-                Text("Manage Users is available for supported MySQL and PostgreSQL sessions. Create and edit accounts, then grant the database, schema, table, and routine privileges exposed by that server. The signed-in account still needs permission to perform each operation.")
+                Text("Manage Users is available for supported MySQL and PostgreSQL sessions. MySQL and MariaDB accounts can be edited at global, database, and single-table scope, including the server privileges that DB Connect exposes only when the current connection actually supports them. PostgreSQL keeps the simpler cross-database grant flow. The signed-in account still needs permission to perform each operation.")
+            }
+            DBConnectDocumentationSection("MySQL and MariaDB administration") {
+                DBConnectDocumentationBullets([
+                    "Table Details opens a MySQL- or MariaDB-only inspector for the selected table’s metadata, foreign-key relations, and triggers.",
+                    "MySQL Administration shows server variables and the visible process list. Without the PROCESS privilege, the process viewer may show only sessions visible to the connected account.",
+                    "Flush Privileges is shown only when the connected account has the server right to reload grant tables."
+                ])
+            }
+            DBConnectDocumentationSection("What is intentionally deferred") {
+                Text("MySQL contextual help for SQL terms is not shipped yet. Server-side HELP support and access to the mysql help tables vary across MySQL, MariaDB, and hosted services, and DB Connect does not want to fall back to shell execution or bundled stale help text without a clearer trust and update model. The current Phase 2 release focuses on server metadata and privilege administration instead.")
             }
             DBConnectDocumentationSection("Capability-based interface") {
                 Text("DB Connect hides or disables an administrative action when the driver, server, selected object, read-only setting, or current account cannot safely perform it. An unavailable command is therefore often contextual rather than an app failure.")
@@ -281,7 +313,7 @@ private struct DBConnectDocumentationArticle: View {
         Group {
             DBConnectDocumentationSection("What syncs") {
                 DBConnectDocumentationBullets([
-                    "Connection definitions, saved queries, and monitor definitions use the private iCloud database when it is available.",
+                    "Connection definitions, saved queries, query favorites, and monitor definitions use the private iCloud database when it is available.",
                     "Passwords and API keys use iCloud Keychain separately. They may arrive later than a connection definition or remain local when Keychain sync is disabled.",
                     "Query result rows never sync. Monitor activations and sample histories remain specific to each device."
                 ])
@@ -308,6 +340,8 @@ private struct DBConnectDocumentationArticle: View {
             DBConnectDocumentationSection("A connection fails") {
                 DBConnectDocumentationBullets([
                     "Recheck host, port, database, username, secret, VPN or tunnel, and whether the server accepts remote clients.",
+                    "For SSH, confirm the host key is already trusted by OpenSSH on this Mac and that the selected SSH authentication mode matches the available secret or agent state.",
+                    "For AWS IAM, confirm the region, AWS keys, database username, IAM policy, and that you used the database endpoint hostname rather than a custom DNS alias.",
                     "For system-trusted TLS, confirm the certificate is valid for the server and not expired. For pinned TLS, re-import the certificate after a legitimate rotation and verify its new fingerprint.",
                     "Use Reconnect after correcting network or server state. Edit Connection when the saved definition itself must change."
                 ])
@@ -316,7 +350,8 @@ private struct DBConnectDocumentationArticle: View {
                 DBConnectDocumentationBullets([
                     "Turn off Read-only only when writes are intended.",
                     "Confirm the account has the database privilege required for the action.",
-                    "Row editing also needs driver support and a table key; SQL console and administrative features vary by driver."
+                    "Row editing also needs driver support and a table key; SQL console and administrative features vary by driver.",
+                    "MySQL process visibility and Flush Privileges also depend on server-wide PROCESS or RELOAD rights."
                 ])
             }
             DBConnectDocumentationSection("Sync or automation looks incomplete") {

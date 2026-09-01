@@ -175,14 +175,17 @@ extension MySQLSession {
         return "\(sqlLiteral(user.name))@\(sqlLiteral(user.host ?? "%"))"
     }
 
-    /// Database names in a grant target are identifiers, so they take backticks — not the
-    /// literal quoting used for account names.
+    /// Grant targets use identifiers, so they take backticks — not the literal quoting used for
+    /// account names. Database names in MySQL grants are also LIKE patterns, which is why the
+    /// database helper escapes `_` and `%`.
     private static func target(_ scope: GrantScope) throws -> String {
         switch scope {
         case .global:
             return "*.*"
         case .database(let name):
             return "\(try grantDatabaseIdentifier(name)).*"
+        case .table(let database, let table):
+            return "\(try grantDatabaseIdentifier(database)).\(try SQLIdentifier.quote(table, style: .backtick))"
         }
     }
 

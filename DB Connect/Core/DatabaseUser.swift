@@ -68,17 +68,29 @@ nonisolated enum Privilege: String, Sendable, CaseIterable, Identifiable {
     static let readWrite: [Privilege] = [.select, .insert, .update, .delete, .showView]
 }
 
+/// One table within a database, used by grant editors and MySQL-specific admin surfaces.
+nonisolated struct GrantTableTarget: Sendable, Hashable, Identifiable {
+    let database: String
+    let table: String
+
+    var id: String { "\(database).\(table)" }
+    var qualifiedName: String { "\(database).\(table)" }
+}
+
 /// What a grant applies to.
 nonisolated enum GrantScope: Sendable, Hashable {
     /// Every database on the server.
     case global
     /// One database, all its tables.
     case database(String)
+    /// One table in one database.
+    case table(database: String, table: String)
 
     var sqlTarget: String {
         switch self {
         case .global: "*.*"
         case .database(let name): "\(name).*"
+        case .table(let database, let table): "\(database).\(table)"
         }
     }
 
@@ -86,6 +98,7 @@ nonisolated enum GrantScope: Sendable, Hashable {
         switch self {
         case .global: "all databases"
         case .database(let name): name
+        case .table(let database, let table): "\(database).\(table)"
         }
     }
 }

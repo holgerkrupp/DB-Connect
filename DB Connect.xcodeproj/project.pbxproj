@@ -14,6 +14,11 @@
 		171847AE3C1A6AB9FDD7E2F2 /* SQLiteDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B32ED3CAB7734C8ECC820DB /* SQLiteDriver.swift */; };
 		1ADFB332B41C1C116F317BF3 /* QueryLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = C829B717882B434135A8684C /* QueryLimits.swift */; };
 		20EFD6FA78520661D56C61B2 /* DatabaseDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62797E09F90830622EBC5437 /* DatabaseDriver.swift */; };
+		2A7E7C4101F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7E7C4001F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift */; };
+		2A7E7C4301F04E08A4D8B180 /* MySQLPrivileges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7E7C4201F04E08A4D8B180 /* MySQLPrivileges.swift */; };
+		2A7E7C4501F04E08A4D8B180 /* MySQLAdministration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7E7C4401F04E08A4D8B180 /* MySQLAdministration.swift */; };
+		2A7E7C4701F04E08A4D8B180 /* DataTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7E7C4601F04E08A4D8B180 /* DataTransfer.swift */; };
+		2A7E7C4901F04E08A4D8B180 /* SQLFavoriteSnippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7E7C4801F04E08A4D8B180 /* SQLFavoriteSnippets.swift */; };
 		2DAB4D802F49699F9323B77F /* CloudKitSyncMonitor in Frameworks */ = {isa = PBXBuildFile; productRef = DBC0FFEE00000006 /* CloudKitSyncMonitor */; };
 		357643C6BDC1C9A1F5B0964A /* RowMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A0D3964A648811FA59F9535 /* RowMutation.swift */; };
 		5621537EB341DDA6F2FF478F /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 749DDC4B5BB6821FBA93018A /* Cocoa.framework */; };
@@ -30,6 +35,7 @@
 		DBC0FFEE00000004 /* CloudKitSyncMonitor in Frameworks */ = {isa = PBXBuildFile; productRef = DBC0FFEE00000006 /* CloudKitSyncMonitor */; };
 		DBC0FFEE00000007 /* MySQLNIO in Frameworks */ = {isa = PBXBuildFile; productRef = DBC0FFEE00000009 /* MySQLNIO */; };
 		DBC0FFEE10000001 /* DB Connect Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DBC0FFEE10000002 /* DB Connect Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E39C3D2502C447F5A9E2F220 /* RDSIAMAuthToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39C3D2402C447F5A9E2F220 /* RDSIAMAuthToken.swift */; };
 		F7CB3A8737599AF5C9BE2994 /* DatabaseUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11085DF1B1E6FAEF6989B254 /* DatabaseUser.swift */; };
 /* End PBXBuildFile section */
 
@@ -60,6 +66,11 @@
 /* Begin PBXFileReference section */
 		0E5DCC49BCEFB025CA8010D2 /* Descriptors.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Descriptors.swift; path = "DB Connect/Core/Descriptors.swift"; sourceTree = "<group>"; };
 		11085DF1B1E6FAEF6989B254 /* DatabaseUser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DatabaseUser.swift; path = "DB Connect/Core/DatabaseUser.swift"; sourceTree = "<group>"; };
+		2A7E7C4001F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ConnectionRuntimeSecretResolver.swift; path = "DB Connect/Core/ConnectionRuntimeSecretResolver.swift"; sourceTree = "<group>"; };
+		2A7E7C4201F04E08A4D8B180 /* MySQLPrivileges.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MySQLPrivileges.swift; path = "DB Connect/Core/MySQLPrivileges.swift"; sourceTree = "<group>"; };
+		2A7E7C4401F04E08A4D8B180 /* MySQLAdministration.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MySQLAdministration.swift; path = "DB Connect/Core/MySQLAdministration.swift"; sourceTree = "<group>"; };
+		2A7E7C4601F04E08A4D8B180 /* DataTransfer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DataTransfer.swift; path = "DB Connect/Core/DataTransfer.swift"; sourceTree = "<group>"; };
+		2A7E7C4801F04E08A4D8B180 /* SQLFavoriteSnippets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SQLFavoriteSnippets.swift; path = "DB Connect/Core/SQLFavoriteSnippets.swift"; sourceTree = "<group>"; };
 		3B32ED3CAB7734C8ECC820DB /* SQLiteDriver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SQLiteDriver.swift; path = "DB Connect/Drivers/SQLiteDriver.swift"; sourceTree = "<group>"; };
 		4363D64E0E410F02BB8A2E71 /* PredicateBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PredicateBuilder.swift; path = "DB Connect/Core/PredicateBuilder.swift"; sourceTree = "<group>"; };
 		4483D1EC9D4B9D42153F82C3 /* MutationBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MutationBuilder.swift; path = "DB Connect/Core/MutationBuilder.swift"; sourceTree = "<group>"; };
@@ -79,6 +90,7 @@
 		CB0036D0C5F50ED9A489A930 /* PredicateBuilderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PredicateBuilderTests.swift; sourceTree = "<group>"; };
 		DBC0FFEE10000002 /* DB Connect Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "DB Connect Widgets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2C1B8E9B54EE777A0377C94 /* RowFilter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RowFilter.swift; path = "DB Connect/Core/RowFilter.swift"; sourceTree = "<group>"; };
+		E39C3D2402C447F5A9E2F220 /* RDSIAMAuthToken.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RDSIAMAuthToken.swift; path = "DB Connect/Core/RDSIAMAuthToken.swift"; sourceTree = "<group>"; };
 		FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SchemaAdmin.swift; path = "DB Connect/Core/SchemaAdmin.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -141,6 +153,10 @@
 		2DBE717DBAAEC53B117A60E9 /* DB Connect Test Sources */ = {
 			isa = PBXGroup;
 			children = (
+				2A7E7C4001F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift */,
+				2A7E7C4601F04E08A4D8B180 /* DataTransfer.swift */,
+				2A7E7C4401F04E08A4D8B180 /* MySQLAdministration.swift */,
+				2A7E7C4201F04E08A4D8B180 /* MySQLPrivileges.swift */,
 				62797E09F90830622EBC5437 /* DatabaseDriver.swift */,
 				11085DF1B1E6FAEF6989B254 /* DatabaseUser.swift */,
 				0E5DCC49BCEFB025CA8010D2 /* Descriptors.swift */,
@@ -149,7 +165,9 @@
 				C829B717882B434135A8684C /* QueryLimits.swift */,
 				E2C1B8E9B54EE777A0377C94 /* RowFilter.swift */,
 				6A0D3964A648811FA59F9535 /* RowMutation.swift */,
+				E39C3D2402C447F5A9E2F220 /* RDSIAMAuthToken.swift */,
 				61EAF479CB1543034FD5A4E1 /* SQLIdentifier.swift */,
+				2A7E7C4801F04E08A4D8B180 /* SQLFavoriteSnippets.swift */,
 				77D7BF7F5EFE1A9C7C976A6E /* SQLValue.swift */,
 				FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */,
 				86D74FC37FBADD3EF509342D /* Statement.swift */,
@@ -352,6 +370,10 @@
 				B786928654AC56020E101991 /* PredicateBuilderTests.swift in Sources */,
 				0D698E84372EB2D17BED18C4 /* SQLiteDriverTests.swift in Sources */,
 				D9BBD4666C3D75135E4F34AE /* TestSupport.swift in Sources */,
+				2A7E7C4101F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift in Sources */,
+				2A7E7C4701F04E08A4D8B180 /* DataTransfer.swift in Sources */,
+				2A7E7C4501F04E08A4D8B180 /* MySQLAdministration.swift in Sources */,
+				2A7E7C4301F04E08A4D8B180 /* MySQLPrivileges.swift in Sources */,
 				20EFD6FA78520661D56C61B2 /* DatabaseDriver.swift in Sources */,
 				F7CB3A8737599AF5C9BE2994 /* DatabaseUser.swift in Sources */,
 				C2CDC6908277F8C44709D920 /* Descriptors.swift in Sources */,
@@ -360,7 +382,9 @@
 				1ADFB332B41C1C116F317BF3 /* QueryLimits.swift in Sources */,
 				C60E4CF51AB6247BF7FCAE38 /* RowFilter.swift in Sources */,
 				357643C6BDC1C9A1F5B0964A /* RowMutation.swift in Sources */,
+				E39C3D2502C447F5A9E2F220 /* RDSIAMAuthToken.swift in Sources */,
 				A35DC6B1B0D1BF79536100A6 /* SQLIdentifier.swift in Sources */,
+				2A7E7C4901F04E08A4D8B180 /* SQLFavoriteSnippets.swift in Sources */,
 				0FCDB164AF7904F55103F0DC /* SQLValue.swift in Sources */,
 				9EF7320BEF6D68E3AC9D6E8A /* SchemaAdmin.swift in Sources */,
 				15B5AE3BEB9345052F9A5277 /* Statement.swift in Sources */,
@@ -646,11 +670,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "DB Connect Widgets/DB Connect Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
@@ -659,6 +685,7 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -674,6 +701,12 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect.Widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
@@ -689,11 +722,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "DB Connect Widgets/DB Connect Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
@@ -702,6 +737,7 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
 				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
 				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -717,6 +753,12 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect.Widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
+				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = NO;
+				RUNTIME_EXCEPTION_DEBUGGING_TOOL = NO;
+				RUNTIME_EXCEPTION_DISABLE_EXECUTABLE_PAGE_PROTECTION = NO;
+				RUNTIME_EXCEPTION_DISABLE_LIBRARY_VALIDATION = NO;
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;

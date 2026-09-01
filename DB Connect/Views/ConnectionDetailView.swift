@@ -1,4 +1,6 @@
 import SwiftUI
+import SwiftData
+import UniformTypeIdentifiers
 
 enum WorkspaceMode: String, CaseIterable {
     case tables = "Tables"
@@ -29,6 +31,8 @@ struct ConnectionDetailView: View {
     typealias Mode = WorkspaceMode
 
     let connection: Connection
+    var onEditConnection: (() -> Void)? = nil
+    var onDeleteConnection: (() -> Void)? = nil
 
     @State private var session: (any DatabaseSession)?
     @State private var tables: [TableDescriptor] = []
@@ -41,21 +45,30 @@ struct ConnectionDetailView: View {
     @State private var showsUsers = false
     @State private var userAdmin: UserAdminCapability = .none
     @State private var schemaAdmin: SchemaAdminCapability = .none
+    @State private var mysqlAdmin: MySQLAdminCapability = .none
     @State private var showsNewTable = false
     @State private var showsNewDatabase = false
+    @State private var showsMySQLTableInspector = false
+    @State private var showsMySQLServerAdmin = false
+    @State private var showsFlushPrivilegesConfirm = false
+    @State private var mysqlAdminMessage: String?
     @State private var transferOperation: TransferOperation?
     @State private var isConnecting = false
     @State private var isLoadingSchema = false
+    @State private var showsSQLiteFileImporter = false
+    @State private var showsSQLiteFolderImporter = false
     /// Invalidates an older async connection attempt when the user retries or leaves the view.
     @State private var connectionAttemptID = UUID()
     /// Lives here rather than in the console so an in-progress query survives a trip to the
     /// table browser and back.
     @State private var consoleDraft = ConsoleDraft()
+    @AppStorage(AppSettings.Key.keepConnectionsAlive) private var keepConnectionsAlive = true
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.appNavigation) private var navigation
+    @Environment(\.modelContext) private var modelContext
     #if os(macOS)
     /// Remembered across launches — a column the user closed should stay closed.
     @AppStorage("detail.showsTableList") private var showsTableList = true
@@ -69,10 +82,33 @@ struct ConnectionDetailView: View {
                 } description: {
                     Text(connectionError)
                 } actions: {
+                    if showsSQLiteAccessRecovery {
+                        Button("Choose Database File…") { showsSQLiteFileImporter = true }
+                        if !connection.isReadOnly {
+                            Button("Grant Folder Access…") { showsSQLiteFolderImporter = true }
+                        }
+                        if connection.fileBookmark != nil {
+                            Button("Forget Saved File Access", role: .destructive) {
+                                clearSQLiteBookmark()
+                            }
+                        }
+                        if connection.fileContainerBookmark != nil {
+                            Button("Forget Saved Folder Access", role: .destructive) {
+                                clearSQLiteContainerBookmark()
+                            }
+                        }
+                    }
+                    if let onEditConnection {
+                        Button("Edit Connection…") { onEditConnection() }
+                    }
+                    if let onDeleteConnection {
+                        Button("Delete Connection…", role: .destructive) { onDeleteConnection() }
+                    }
                     Button("Retry") { connectIfNeeded() }
                 }
             } else if let session {
                 connectedBody(session)
+                    .id(connectionAttemptID)
             } else {
                 DatabaseLoadingView("Connecting…")
             }
@@ -148,6 +184,16 @@ struct ConnectionDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: $showsMySQLTableInspector) {
+            if let session, let target = selectedTableTarget {
+                MySQLTableInspectorView(session: session, target: target)
+            }
+        }
+        .sheet(isPresented: $showsMySQLServerAdmin) {
+            if let session {
+                MySQLServerAdminView(session: session, capability: mysqlAdmin)
+            }
+        }
         .sheet(item: $transferOperation) { operation in
             if let session {
                 DataTransferView(
@@ -165,6 +211,29 @@ struct ConnectionDetailView: View {
                 )
             }
         }
+        .confirmationDialog("Flush privileges now?", isPresented: $showsFlushPrivilegesConfirm, titleVisibility: .visible) {
+            Button("Flush Privileges", role: .destructive) { Task { await flushPrivileges() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This reloads MySQL or MariaDB grant tables immediately. Use it when account or privilege changes made outside DB Connect should take effect now.")
+        }
+        .alert("MySQL Administration", isPresented: Binding(get: { mysqlAdminMessage != nil }, set: { if !$0 { mysqlAdminMessage = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(mysqlAdminMessage ?? "")
+        }
+        .fileImporter(
+            isPresented: $showsSQLiteFileImporter,
+            allowedContentTypes: [.data, .database]
+        ) { result in
+            authorizeSQLiteFile(result)
+        }
+        .fileImporter(
+            isPresented: $showsSQLiteFolderImporter,
+            allowedContentTypes: [.folder]
+        ) { result in
+            authorizeSQLiteFolder(result)
+        }
         .focusedSceneValue(\.connectionActions, menuActions)
         // Compact NavigationSplitView can retain the detail when Back merely hides it. Start
         // explicitly on every appearance because a completed `.task` is not reliably restarted
@@ -172,6 +241,9 @@ struct ConnectionDetailView: View {
         .onAppear {
             connectIfNeeded()
             applyNavigationRequest()
+        }
+        .task(id: connection.id) {
+            await monitorConnection()
         }
         .onChange(of: navigation.request?.id) { _, _ in applyNavigationRequest() }
         .onDisappear {
@@ -328,6 +400,25 @@ struct ConnectionDetailView: View {
             if schemaAdmin.canCreateTable || schemaAdmin.canCreateDatabase {
                 Divider()
             }
+            if mysqlAdmin.showsTableInspector {
+                Button("Table Details", systemImage: "info.square") {
+                    showsMySQLTableInspector = true
+                }
+                .disabled(selectedTableTarget == nil)
+            }
+            if mysqlAdmin.showsServerAdministration {
+                Button("MySQL Administration", systemImage: "server.rack") {
+                    showsMySQLServerAdmin = true
+                }
+            }
+            if mysqlAdmin.canFlushPrivileges {
+                Button("Flush Privileges…", systemImage: "lock.rotation") {
+                    showsFlushPrivilegesConfirm = true
+                }
+            }
+            if mysqlAdmin.showsTableInspector || mysqlAdmin.showsServerAdministration || mysqlAdmin.canFlushPrivileges {
+                Divider()
+            }
             // Show the capability even when this account cannot use it; the disabled button's
             // help explains why the feature is unavailable.
             if session.capabilities.supportsUserManagement {
@@ -366,15 +457,18 @@ struct ConnectionDetailView: View {
                         workspaceMode: $mode,
                         showsWorkspaceModePicker: horizontalSizeClass == .compact
                             && session.capabilities.canRunArbitrarySQL,
-                        showsTablePicker: !usesTableListColumn
+                        showsTablePicker: !usesTableListColumn,
+                        onConnectionLost: { reconnectIfPossible() }
                     )
                 case .sql:
                     SQLConsoleView(
                         session: session,
                         connection: connection,
+                        selectedTable: selectedTable,
                         draft: consoleDraft,
                         workspaceMode: $mode,
-                        showsWorkspaceModePicker: horizontalSizeClass == .compact
+                        showsWorkspaceModePicker: horizontalSizeClass == .compact,
+                        onConnectionLost: { reconnectIfPossible() }
                     )
                 }
             }
@@ -421,6 +515,64 @@ struct ConnectionDetailView: View {
         Task { await connect() }
     }
 
+    /// Keep long-lived windows from holding on to a dead TCP connection. The task is cancelled
+    /// automatically when this detail leaves the view hierarchy, and the attempt ID prevents a
+    /// late health-check result from racing a manual retry or a database switch.
+    private func monitorConnection() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, keepConnectionsAlive,
+                  let liveSession = session, !isConnecting else { continue }
+            let observedAttempt = connectionAttemptID
+
+            do {
+                try await liveSession.ping()
+            } catch {
+                guard !Task.isCancelled,
+                      connectionAttemptID == observedAttempt,
+                      session != nil else { continue }
+                await automaticallyReconnect(after: error)
+            }
+        }
+    }
+
+    /// Automatic recovery is deliberately conservative: a remote driver must have a persisted
+    /// secret that can be resolved again. This avoids repeatedly prompting or hammering a server
+    /// when the user intentionally left credentials blank or they are unavailable on this device.
+    private func automaticallyReconnect(after error: Error) async {
+        guard hasKnownCredentialsForAutomaticReconnect else {
+            connectionError = "The server connection was lost. \(error.localizedDescription) Please reconnect manually."
+            return
+        }
+        reconnect()
+    }
+
+    private func reconnectIfPossible() {
+        guard hasKnownCredentialsForAutomaticReconnect else { return }
+        reconnect()
+    }
+
+    private var hasKnownCredentialsForAutomaticReconnect: Bool {
+        guard let driver = DriverRegistry.driver(for: connection.driverID) else { return false }
+        if !driver.capabilities.requiresCredentials { return true }
+        guard let storedSecret = try? KeychainSecretStore().secret(for: connection.id),
+              storedSecret.hasPersistedValue else { return false }
+        do {
+            _ = try ConnectionRuntimeSecretResolver.resolve(config: connection.config, secret: storedSecret)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private var showsSQLiteAccessRecovery: Bool {
+        #if os(macOS)
+        return DriverRegistry.style(for: connection.driverID) == .file
+        #else
+        return false
+        #endif
+    }
+
     private func connect(overrideDatabase: String? = nil) async {
         let attemptID = UUID()
         connectionAttemptID = attemptID
@@ -445,13 +597,36 @@ struct ConnectionDetailView: View {
             return
         }
 
+        if let remoteOwner = SQLiteFileAccessRequirement.unavailableOnOtherDeviceOwner(
+            path: connection.database,
+            ownerDeviceID: connection.fileAccessOwnerDeviceID,
+            ownerDeviceName: connection.fileAccessOwnerDeviceName,
+            currentDeviceID: DeviceIdentity.identifier
+        ) {
+            connectionError = SQLiteFileAccessRequirement.unavailableOnOtherDeviceMessage(for: remoteOwner)
+            return
+        }
+        #if os(macOS)
+        if DriverRegistry.style(for: connection.driverID) == .file,
+           let issue = SQLiteFileAccessRequirement.issue(
+                path: connection.database,
+                hasFileBookmark: connection.fileBookmark != nil,
+                hasContainerBookmark: connection.fileContainerBookmark != nil,
+                isReadOnly: connection.isReadOnly
+           ) {
+            connectionError = issue
+            return
+        }
+        #endif
+
         var candidate: (any DatabaseSession)?
         do {
-            let secret = try KeychainSecretStore().secret(for: connection.id)
+            let storedSecret = try KeychainSecretStore().secret(for: connection.id)
             restoreFileAccessIfNeeded()
 
             var config = connection.config
             if let overrideDatabase { config.database = overrideDatabase }
+            let secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
 
             let newSession = try await driver.connect(config: config, secret: secret)
             candidate = newSession
@@ -488,6 +663,7 @@ struct ConnectionDetailView: View {
             // server-level admin does) took the early-return path and left this at `.none`,
             // which disabled the Users button for accounts that can in fact manage users.
             let resolvedUserAdmin = await newSession.userAdmin
+            let resolvedMySQLAdmin = await newSession.mysqlAdmin
 
             // Connecting without a database is legitimate — the user picks one from the list.
             if resolvedDatabase == nil,
@@ -524,6 +700,7 @@ struct ConnectionDetailView: View {
             consoleDraft.reset(for: resolvedDatabase ?? connection.database)
             databases = resolvedDatabases
             userAdmin = resolvedUserAdmin
+            mysqlAdmin = resolvedMySQLAdmin
             tables = resolvedTables
             selectedTable = resolvedTables.first
             schemaAdmin = resolvedSchemaAdmin
@@ -535,7 +712,7 @@ struct ConnectionDetailView: View {
             }
             await candidate?.close()
             guard connectionAttemptID == attemptID else { return }
-            connectionError = error.localizedDescription
+            connectionError = sqliteRecoveryMessage(for: error) ?? error.localizedDescription
         }
     }
 
@@ -566,6 +743,7 @@ struct ConnectionDetailView: View {
             await connect(overrideDatabase: name)
         } catch {
             connectionError = error.localizedDescription
+            reconnectIfPossible()
         }
     }
 
@@ -586,6 +764,12 @@ struct ConnectionDetailView: View {
             newDatabase: schemaAdmin.canCreateDatabase ? { showsNewDatabase = true } : nil,
             manageUsers: session.capabilities.supportsUserManagement && userAdmin.isAvailable
                 ? { openUserManager() } : nil,
+            showTableInspector: mysqlAdmin.showsTableInspector && selectedTableTarget != nil
+                ? { showsMySQLTableInspector = true } : nil,
+            showDriverAdmin: mysqlAdmin.showsServerAdministration
+                ? { showsMySQLServerAdmin = true } : nil,
+            flushPrivileges: mysqlAdmin.canFlushPrivileges
+                ? { showsFlushPrivilegesConfirm = true } : nil,
             importData: !connection.isReadOnly
                 && session.capabilities.canRunArbitrarySQL
                 && DriverRegistry.dialect(for: connection.driverID) != nil
@@ -629,23 +813,155 @@ struct ConnectionDetailView: View {
     /// Re-read the schema, optionally selecting a table by name once it appears.
     private func reloadTables(selecting name: String? = nil) async {
         guard let session else { return }
-        guard let refreshed = try? await session.tables() else { return }
-        let previousID = selectedTable?.id
-        tables = refreshed
-        if let name, let match = refreshed.first(where: { $0.name == name }) {
-            selectedTable = match
-        } else if let previousID,
-                  let previous = refreshed.first(where: { $0.id == previousID }) {
-            selectedTable = previous
-        } else {
-            selectedTable = refreshed.first
+        do {
+            let refreshed = try await session.tables()
+            let previousID = selectedTable?.id
+            tables = refreshed
+            if let name, let match = refreshed.first(where: { $0.name == name }) {
+                selectedTable = match
+            } else if let previousID,
+                      let previous = refreshed.first(where: { $0.id == previousID }) {
+                selectedTable = previous
+            } else {
+                selectedTable = refreshed.first
+            }
+        } catch {
+            reconnectIfPossible()
+        }
+    }
+
+    private var selectedTableTarget: GrantTableTarget? {
+        guard let database = activeDatabase, let table = selectedTable, table.kind == .table else { return nil }
+        return GrantTableTarget(database: database, table: table.name)
+    }
+
+    private func flushPrivileges() async {
+        guard let session else { return }
+        do {
+            try await session.mysqlFlushPrivileges()
+            mysqlAdminMessage = "Privileges reloaded."
+        } catch {
+            mysqlAdminMessage = error.localizedDescription
         }
     }
 
     /// For file-based connections in the sandbox, re-arm access from the stored bookmark.
     private func restoreFileAccessIfNeeded() {
         #if os(macOS)
-        guard let bookmark = connection.fileBookmark else { return }
+        restoreSecurityScopedBookmark(
+            connection.fileBookmark,
+            onStaleRefresh: { connection.fileBookmark = $0 },
+            onFailure: { connection.fileBookmark = nil }
+        )
+        restoreSecurityScopedBookmark(
+            connection.fileContainerBookmark,
+            onStaleRefresh: { connection.fileContainerBookmark = $0 },
+            onFailure: { connection.fileContainerBookmark = nil }
+        )
+        #endif
+    }
+
+    private func sqliteRecoveryMessage(for error: Error) -> String? {
+        #if os(macOS)
+        guard DriverRegistry.style(for: connection.driverID) == .file else { return nil }
+        let message = error.localizedDescription
+        guard message.localizedCaseInsensitiveContains("authorization denied")
+            || message.localizedCaseInsensitiveContains("not authorized")
+        else { return nil }
+        return SQLiteFileAccessRequirement.issue(
+            path: connection.database,
+            hasFileBookmark: connection.fileBookmark != nil,
+            hasContainerBookmark: connection.fileContainerBookmark != nil,
+            isReadOnly: connection.isReadOnly
+        ) ?? SQLiteFileAccessRequirement.missingPermissionMessage(forPath: connection.database)
+        #else
+        return nil
+        #endif
+    }
+
+    private func authorizeSQLiteFile(_ result: Result<URL, Error>) {
+        #if os(macOS)
+        guard case .success(let url) = result else { return }
+        let needsScope = url.startAccessingSecurityScopedResource()
+        defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            connection.database = url.path
+            connection.fileBookmark = try url.bookmarkData(options: [.withSecurityScope])
+            if let folderBookmark = try? url.deletingLastPathComponent().bookmarkData(options: [.withSecurityScope]) {
+                connection.fileContainerBookmark = folderBookmark
+            }
+            connection.fileAccessOwnerDeviceID = DeviceIdentity.current.id
+            connection.fileAccessOwnerDeviceName = DeviceIdentity.current.name
+            try modelContext.save()
+            connectionError = nil
+            connectIfNeeded()
+        } catch {
+            connectionError = error.localizedDescription
+        }
+        #endif
+    }
+
+    private func authorizeSQLiteFolder(_ result: Result<URL, Error>) {
+        #if os(macOS)
+        guard case .success(let url) = result else { return }
+        let needsScope = url.startAccessingSecurityScopedResource()
+        defer { if needsScope { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            connection.fileContainerBookmark = try url.bookmarkData(options: [.withSecurityScope])
+            connection.fileAccessOwnerDeviceID = DeviceIdentity.current.id
+            connection.fileAccessOwnerDeviceName = DeviceIdentity.current.name
+            try modelContext.save()
+            connectionError = nil
+            connectIfNeeded()
+        } catch {
+            connectionError = error.localizedDescription
+        }
+        #endif
+    }
+
+    private func clearSQLiteBookmark() {
+        #if os(macOS)
+        connection.fileBookmark = nil
+        do {
+            try modelContext.save()
+            connectionError = SQLiteFileAccessRequirement.issue(
+                path: connection.database,
+                hasFileBookmark: false,
+                hasContainerBookmark: connection.fileContainerBookmark != nil,
+                isReadOnly: connection.isReadOnly
+            )
+        } catch {
+            connectionError = error.localizedDescription
+        }
+        #endif
+    }
+
+    private func clearSQLiteContainerBookmark() {
+        #if os(macOS)
+        connection.fileContainerBookmark = nil
+        do {
+            try modelContext.save()
+            connectionError = SQLiteFileAccessRequirement.issue(
+                path: connection.database,
+                hasFileBookmark: connection.fileBookmark != nil,
+                hasContainerBookmark: false,
+                isReadOnly: connection.isReadOnly
+            )
+        } catch {
+            connectionError = error.localizedDescription
+        }
+        #endif
+    }
+
+    private func restoreSecurityScopedBookmark(
+        _ bookmark: Data?,
+        onStaleRefresh: (Data) -> Void,
+        onFailure: () -> Void
+    ) {
+        #if os(macOS)
+        guard let bookmark else { return }
         var stale = false
         if let url = try? URL(
             resolvingBookmarkData: bookmark,
@@ -653,11 +969,20 @@ struct ConnectionDetailView: View {
             bookmarkDataIsStale: &stale
         ) {
             // Balanced by process exit; a longer-lived session manager will own this in phase 2.
-            _ = url.startAccessingSecurityScopedResource()
-            if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
-                connection.fileBookmark = fresh
+            guard url.startAccessingSecurityScopedResource() else {
+                onFailure()
+                return
             }
+            if stale, let fresh = try? url.bookmarkData(options: [.withSecurityScope]) {
+                onStaleRefresh(fresh)
+            }
+        } else {
+            onFailure()
         }
+        #else
+        _ = bookmark
+        _ = onStaleRefresh
+        _ = onFailure
         #endif
     }
 }

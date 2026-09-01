@@ -38,6 +38,9 @@ struct ConnectionActions {
     var newTable: (() -> Void)?
     var newDatabase: (() -> Void)?
     var manageUsers: (() -> Void)?
+    var showTableInspector: (() -> Void)?
+    var showDriverAdmin: (() -> Void)?
+    var flushPrivileges: (() -> Void)?
     var importData: (() -> Void)?
     var exportData: (() -> Void)?
 
@@ -55,6 +58,8 @@ struct ConnectionActions {
 struct ConsoleActions {
     var run: () -> Void
     var canRun: Bool
+    var showFavorites: () -> Void
+    var canShowFavorites: Bool
     var saveQuery: () -> Void
     var canSave: Bool
     var clearEditor: () -> Void
@@ -172,6 +177,10 @@ struct AppMenuCommands: Commands {
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(console?.canRun != true)
 
+            Button("Favorites…") { console?.showFavorites() }
+                .keyboardShortcut("f", modifiers: [.command, .option])
+                .disabled(console?.canShowFavorites != true)
+
             Button("Clear Editor") { console?.clearEditor() }
                 .disabled(console == nil)
 
@@ -224,6 +233,15 @@ struct AppMenuCommands: Commands {
             Button("Manage Users…") { connection?.manageUsers?() }
                 .keyboardShortcut("u", modifiers: .command)
                 .disabled(connection?.manageUsers == nil)
+
+            Button("Table Details…") { connection?.showTableInspector?() }
+                .disabled(connection?.showTableInspector == nil)
+
+            Button("MySQL Administration…") { connection?.showDriverAdmin?() }
+                .disabled(connection?.showDriverAdmin == nil)
+
+            Button("Flush Privileges…") { connection?.flushPrivileges?() }
+                .disabled(connection?.flushPrivileges == nil)
         }
     }
 

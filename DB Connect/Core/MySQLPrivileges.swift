@@ -107,11 +107,16 @@ nonisolated struct AccountGrants: Sendable, Equatable {
     /// Keyed by database name (the `db` in `ON db.*`).
     var schema: [String: Set<String>] = [:]
     var schemaGrantOption: [String: Bool] = [:]
+    /// Keyed by single table target (`db.table`).
+    var table: [GrantTableTarget: Set<String>] = [:]
+    var tableGrantOption: [GrantTableTarget: Bool] = [:]
 
     func privileges(for scope: GrantScope) -> Set<String> {
         switch scope {
         case .global: global
         case .database(let name): schema[name] ?? []
+        case .table(let database, let table):
+            self.table[GrantTableTarget(database: database, table: table)] ?? []
         }
     }
 
@@ -119,6 +124,8 @@ nonisolated struct AccountGrants: Sendable, Equatable {
         switch scope {
         case .global: globalGrantOption
         case .database(let name): schemaGrantOption[name] ?? false
+        case .table(let database, let table):
+            tableGrantOption[GrantTableTarget(database: database, table: table)] ?? false
         }
     }
 }
@@ -140,6 +147,10 @@ nonisolated enum MySQLGrantParser {
             case .database(let db):
                 result.schema[db, default: []].formUnion(parsed.privileges)
                 result.schemaGrantOption[db] = (result.schemaGrantOption[db] ?? false) || parsed.grantOption
+            case .table(let database, let table):
+                let target = GrantTableTarget(database: database, table: table)
+                result.table[target, default: []].formUnion(parsed.privileges)
+                result.tableGrantOption[target] = (result.tableGrantOption[target] ?? false) || parsed.grantOption
             }
         }
         return result
@@ -151,8 +162,8 @@ nonisolated enum MySQLGrantParser {
         let grantOption: Bool
     }
 
-    /// One `GRANT … ON … TO …` statement. Returns nil for lines we do not model (table- or
-    /// column-level grants, `GRANT <role> TO …`, `PROXY`).
+    /// One `GRANT … ON … TO …` statement. Returns nil for lines we do not model (`GRANT <role>
+    /// TO …`, `PROXY`).
     private static func parseLine(_ raw: String) -> Line? {
         let line = raw.trimmingCharacters(in: .whitespaces)
         guard let onRange = line.range(of: " ON ", options: .caseInsensitive) else { return nil }
@@ -174,7 +185,10 @@ nonisolated enum MySQLGrantParser {
         // `GRANT OPTION` among the privileges. Treat either as the grant-option flag.
         let hasWithGrantOption = tail.range(of: "WITH GRANT OPTION", options: .caseInsensitive) != nil
 
-        let schemaOnly = scope.isDatabase
+        let schemaOnly: Bool = switch scope {
+        case .global: false
+        case .database, .table: true
+        }
         var privileges = Set<String>()
         var listGrantOption = false
 
@@ -199,18 +213,20 @@ nonisolated enum MySQLGrantParser {
         return Line(scope: scope, privileges: privileges, grantOption: hasWithGrantOption || listGrantOption)
     }
 
-    /// `*.*` → global, `` `db`.* `` / `db.*` → that database. Table- and column-level targets
-    /// (`db.tbl`) are not modelled by the editor, so they return nil and are ignored.
+    /// `*.*` → global, `` `db`.* `` / `db.*` → that database, and `` `db`.`tbl` `` / `db.tbl`
+    /// → one table.
     private static func scope(from target: String) -> GrantScope? {
         if target == "*.*" { return .global }
-        guard target.hasSuffix(".*") else { return nil }
-        let dbPart = String(target.dropLast(2))
-        // MySQL treats `_` and `%` as LIKE wildcards in a grant's database name, so a literal one
-        // is shown backslash-escaped (`claude\_test`). Undo that, or the parsed name would not
-        // match the real database and would appear as a phantom "claude\_test" entry.
-        let name = unescapeGrantWildcards(unquoteIdentifier(dbPart))
-        if name == "*" || name.isEmpty { return nil }
-        return .database(name)
+        guard let (dbPart, objectPart) = splitQualifiedTarget(target) else { return nil }
+        // MySQL treats `_` and `%` as LIKE wildcards in grant targets, so literals come back
+        // backslash-escaped (`claude\_test`). Undo that so the editor matches real object names.
+        let database = unescapeGrantWildcards(unquoteIdentifier(dbPart))
+        let object = unescapeGrantWildcards(unquoteIdentifier(objectPart))
+        guard !database.isEmpty, !object.isEmpty else { return nil }
+        if database == "*" && object == "*" { return .global }
+        if object == "*" { return database == "*" ? nil : .database(database) }
+        guard database != "*" else { return nil }
+        return .table(database: database, table: object)
     }
 
     /// Reverse MySQL's grant-name escaping: `\_` → `_`, `\%` → `%`, `\\` → `\`. A backslash always
@@ -262,6 +278,57 @@ nonisolated enum MySQLGrantParser {
         return value.uppercased()
     }
 
+    private static func splitQualifiedTarget(_ target: String) -> (String, String)? {
+        let trimmed = target.trimmingCharacters(in: .whitespaces)
+        var parts: [String] = []
+        var current = ""
+        var inBackticks = false
+        var inDoubleQuotes = false
+
+        var index = trimmed.startIndex
+        while index < trimmed.endIndex {
+            let character = trimmed[index]
+            let nextIndex = trimmed.index(after: index)
+
+            if character == "`" && !inDoubleQuotes {
+                current.append(character)
+                if inBackticks, nextIndex < trimmed.endIndex, trimmed[nextIndex] == "`" {
+                    current.append("`")
+                    index = trimmed.index(after: nextIndex)
+                    continue
+                }
+                inBackticks.toggle()
+                index = nextIndex
+                continue
+            }
+
+            if character == "\"" && !inBackticks {
+                current.append(character)
+                if inDoubleQuotes, nextIndex < trimmed.endIndex, trimmed[nextIndex] == "\"" {
+                    current.append("\"")
+                    index = trimmed.index(after: nextIndex)
+                    continue
+                }
+                inDoubleQuotes.toggle()
+                index = nextIndex
+                continue
+            }
+
+            if character == "." && !inBackticks && !inDoubleQuotes {
+                parts.append(current)
+                current.removeAll(keepingCapacity: true)
+            } else {
+                current.append(character)
+            }
+            index = nextIndex
+        }
+
+        guard !inBackticks, !inDoubleQuotes else { return nil }
+        parts.append(current)
+        guard parts.count == 2 else { return nil }
+        return (parts[0], parts[1])
+    }
+
     private static func unquoteIdentifier(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         // MySQL quotes identifiers with backticks; the double-backtick escape collapses to one.
@@ -273,12 +340,5 @@ nonisolated enum MySQLGrantParser {
             return String(trimmed.dropFirst().dropLast()).replacingOccurrences(of: "\"\"", with: "\"")
         }
         return trimmed
-    }
-}
-
-private nonisolated extension GrantScope {
-    var isDatabase: Bool {
-        if case .database = self { return true }
-        return false
     }
 }

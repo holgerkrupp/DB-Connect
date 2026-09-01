@@ -17,6 +17,10 @@ final class ConsoleDraft {
     var sortOrder: [ColumnSortComparator] = []
     /// Set when a run auto-corrected identifiers, so the change is never silent.
     var correctionNotice: String?
+    /// Set when a favorite or snippet was inserted into the editor.
+    var favoriteNotice: String?
+    /// A request for the editor to insert or replace content while preserving the current caret.
+    var pendingFavoriteInsertion: QueryFavoriteInsertionRequest?
 
     /// Cached schema for autocomplete. Fetching it costs one query per table, so it is loaded
     /// once per database rather than on every switch back to the console.
@@ -47,5 +51,7 @@ final class ConsoleDraft {
         errorMessage = nil
         sortOrder = []
         correctionNotice = nil
+        favoriteNotice = nil
+        pendingFavoriteInsertion = nil
     }
 }

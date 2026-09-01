@@ -26,6 +26,7 @@ nonisolated struct PostgresDriver: DatabaseDriver {
 
 actor PostgresSession: DatabaseSession {
     private var connection: PostgresConnection?
+    private var tunnel: OpenSSHTunnel?
     private let database: String
     private let logger = Logger(label: "de.holgerkrupp.DB-Connect.postgres")
     nonisolated let capabilities: DriverCapabilities
@@ -33,16 +34,33 @@ actor PostgresSession: DatabaseSession {
     init(config: ConnectionConfig, secret: Secret?, capabilities: DriverCapabilities) async throws {
         self.capabilities = capabilities
         self.database = config.database
-
+        let runtimeSecret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: secret)
+        let endpoint = try await ServerEndpointResolver.resolve(config: config, secret: runtimeSecret)
         let tls = try Self.makeTLS(for: config)
-        let pgConfig = PostgresConnection.Configuration(
-            host: config.host,
-            port: config.port == 0 ? PostgresDriver.defaultPort : config.port,
-            username: config.username,
-            password: secret?.password,
-            database: config.database.isEmpty ? nil : config.database,
-            tls: tls
-        )
+
+        var pgConfig: PostgresConnection.Configuration
+        switch endpoint {
+        case .tcp(let address, let serverHostname, let tunnel):
+            self.tunnel = tunnel
+            pgConfig = PostgresConnection.Configuration(
+                host: address.ipAddress ?? "127.0.0.1",
+                port: address.port ?? PostgresDriver.defaultPort,
+                username: config.username,
+                password: runtimeSecret?.password,
+                database: config.database.isEmpty ? nil : config.database,
+                tls: tls
+            )
+            if let serverHostname {
+                pgConfig.options.tlsServerName = serverHostname
+            }
+        case .unixSocket(let path):
+            pgConfig = PostgresConnection.Configuration(
+                unixSocketPath: path,
+                username: config.username,
+                password: runtimeSecret?.password,
+                database: config.database.isEmpty ? nil : config.database
+            )
+        }
 
         do {
             self.connection = try await PostgresConnection.connect(
@@ -51,6 +69,9 @@ actor PostgresSession: DatabaseSession {
                 logger: logger
             )
         } catch {
+            let openedTunnel = self.tunnel
+            self.tunnel = nil
+            await MainActor.run { openedTunnel?.close() }
             throw DatabaseError.connectionFailed(error.localizedDescription)
         }
     }
@@ -77,8 +98,15 @@ actor PostgresSession: DatabaseSession {
 
     func close() async {
         let closing = connection
+        let closingTunnel = tunnel
         connection = nil
+        tunnel = nil
         try? await closing?.close()
+        await MainActor.run { closingTunnel?.close() }
+    }
+
+    func ping() async throws {
+        _ = try await runQuery(Statement("SELECT 1"))
     }
 
     // MARK: - Databases

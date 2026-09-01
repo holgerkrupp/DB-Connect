@@ -76,8 +76,10 @@ struct UserAdminWindow: View {
         windowTitle = connection.name
         var candidate: (any DatabaseSession)?
         do {
-            let secret = try KeychainSecretStore().secret(for: connection.id)
-            let newSession = try await driver.connect(config: connection.config, secret: secret)
+            let config = connection.config
+            let storedSecret = try KeychainSecretStore().secret(for: connection.id)
+            let secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
+            let newSession = try await driver.connect(config: config, secret: secret)
             candidate = newSession
             let loadedDatabases = (try? await newSession.databases()) ?? []
             guard connectionAttemptID == attemptID else {

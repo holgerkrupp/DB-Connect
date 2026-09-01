@@ -123,6 +123,8 @@ extension PostgresSession {
         case .database(let name):
             _ = try await execute(Statement("GRANT CONNECT ON DATABASE \(try SQLIdentifier.quote(name)) TO \(role)"))
             _ = try await execute(Statement("GRANT \(list) ON ALL TABLES IN SCHEMA public TO \(role)"))
+        case .table:
+            throw DatabaseError.unsupported("PostgreSQL table-level grants are not exposed in this flow.")
         }
     }
 
@@ -134,6 +136,8 @@ extension PostgresSession {
 
         if case .database(let name) = scope {
             _ = try await execute(Statement("REVOKE CONNECT ON DATABASE \(try SQLIdentifier.quote(name)) FROM \(role)"))
+        } else if case .table = scope {
+            throw DatabaseError.unsupported("PostgreSQL table-level grants are not exposed in this flow.")
         }
     }
 

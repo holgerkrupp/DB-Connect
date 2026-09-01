@@ -103,7 +103,11 @@ struct ContentView: View {
         } detail: {
             switch selection {
             case .connection(let connection):
-                ConnectionDetailView(connection: connection)
+                ConnectionDetailView(
+                    connection: connection,
+                    onEditConnection: { editingConnection = connection },
+                    onDeleteConnection: { connectionToDelete = connection }
+                )
                     .id(connection.id)   // rebuild sessions when switching connections
             case .monitors:
                 MonitorsView()
@@ -247,6 +251,19 @@ struct ContentView: View {
         copy.pinnedCertificatePEM = connection.pinnedCertificatePEM
         copy.certificateFingerprint = connection.certificateFingerprint
         copy.isReadOnly = connection.isReadOnly
+        copy.transportMode = connection.transportMode
+        copy.socketPath = connection.socketPath
+        copy.authenticationMode = connection.authenticationMode
+        copy.awsRegion = connection.awsRegion
+        copy.sshTunnelEnabled = connection.sshTunnelEnabled
+        copy.sshHost = connection.sshHost
+        copy.sshPort = connection.sshPort
+        copy.sshUsername = connection.sshUsername
+        copy.sshAuthenticationMode = connection.sshAuthenticationMode
+        copy.fileBookmark = connection.fileBookmark
+        copy.fileContainerBookmark = connection.fileContainerBookmark
+        copy.fileAccessOwnerDeviceID = connection.fileAccessOwnerDeviceID
+        copy.fileAccessOwnerDeviceName = connection.fileAccessOwnerDeviceName
         copy.sortOrder = connection.sortOrder + 1
         modelContext.insert(copy)
         try? modelContext.save()
@@ -305,24 +322,39 @@ struct ConnectionRow: View {
             }
             #endif
         }
+        .opacity(remoteSQLiteOwner == nil ? 1 : 0.65)
         #if os(macOS)
         .onHover { isHovering = $0 }
         #endif
     }
 
     private var subtitle: String {
+        if let remoteSQLiteOwner, DriverRegistry.style(for: connection.driverID) == .file {
+            let filename = (connection.database as NSString).lastPathComponent
+            return filename.isEmpty ? "Available on \(remoteSQLiteOwner)" : "\(filename) · Available on \(remoteSQLiteOwner)"
+        }
         switch DriverRegistry.style(for: connection.driverID) {
         case .file:
-            (connection.database as NSString).lastPathComponent
+            return (connection.database as NSString).lastPathComponent
         case .httpEndpoint:
-            URL(string: connection.host)?.host() ?? connection.host
+            return URL(string: connection.host)?.host() ?? connection.host
         case .server:
-            "\(connection.username)@\(connection.host):\(connection.port)"
+            return "\(connection.username)@\(connection.host):\(connection.port)"
         }
+    }
+
+    private var remoteSQLiteOwner: String? {
+        guard DriverRegistry.style(for: connection.driverID) == .file else { return nil }
+        return SQLiteFileAccessRequirement.unavailableOnOtherDeviceOwner(
+            path: connection.database,
+            ownerDeviceID: connection.fileAccessOwnerDeviceID,
+            ownerDeviceName: connection.fileAccessOwnerDeviceName,
+            currentDeviceID: DeviceIdentity.identifier
+        )
     }
 }
 
 #Preview {
     ContentView(purchaseManager: PurchaseManager())
-        .modelContainer(for: [Connection.self, SavedQuery.self], inMemory: true)
+        .modelContainer(for: [Connection.self, SavedQuery.self, QueryFavorite.self], inMemory: true)
 }

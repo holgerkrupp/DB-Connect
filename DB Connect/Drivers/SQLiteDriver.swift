@@ -1,6 +1,60 @@
 import Foundation
 import SQLite3
 
+nonisolated enum SQLiteFileAccessRequirement {
+    static func issue(
+        path: String,
+        hasFileBookmark: Bool,
+        hasContainerBookmark: Bool,
+        isReadOnly: Bool,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return "Choose a SQLite database file."
+        }
+        if !(hasFileBookmark || fileManager.isReadableFile(atPath: trimmed)) {
+            return missingPermissionMessage(forPath: trimmed)
+        }
+        guard !isReadOnly else { return nil }
+
+        let folder = URL(fileURLWithPath: trimmed).deletingLastPathComponent().path
+        if hasContainerBookmark || fileManager.isReadableFile(atPath: folder) {
+            return nil
+        }
+        return missingCompanionFilesMessage(forPath: trimmed)
+    }
+
+    static func missingPermissionMessage(forPath path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return "DB Connect is not allowed to open “\(name)” on this Mac yet. Edit the connection and choose the database file again to grant access."
+    }
+
+    static func unavailableOnOtherDeviceOwner(
+        path: String,
+        ownerDeviceID: String?,
+        ownerDeviceName: String?,
+        currentDeviceID: String,
+        fileManager: FileManager = .default
+    ) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard !fileManager.isReadableFile(atPath: trimmed) else { return nil }
+        guard let ownerDeviceID, ownerDeviceID != currentDeviceID else { return nil }
+        let ownerName = ownerDeviceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (ownerName?.isEmpty == false) ? ownerName : "another device"
+    }
+
+    static func unavailableOnOtherDeviceMessage(for ownerDeviceName: String) -> String {
+        "This local SQLite connection is currently available only on \(ownerDeviceName). Choose the database file on this device if you want to use it here."
+    }
+
+    static func missingCompanionFilesMessage(forPath path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        return "DB Connect also needs access to the folder containing “\(name)” so SQLite can read and write its companion WAL or journal files. Grant folder access for this connection on this Mac."
+    }
+}
+
 /// Passing a Swift string to SQLite without this tells it the buffer is permanent, which it is not.
 nonisolated(unsafe) private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -22,7 +76,7 @@ nonisolated struct SQLiteDriver: DatabaseDriver {
 
     /// `config.database` is the file path. Use `":memory:"` for a scratch database.
     func connect(config: ConnectionConfig, secret: Secret?) async throws -> any DatabaseSession {
-        try await SQLiteSession(path: config.database, capabilities: capabilities)
+        try await SQLiteSession(path: config.database, isReadOnly: config.isReadOnly, capabilities: capabilities)
     }
 }
 
@@ -30,13 +84,23 @@ actor SQLiteSession: DatabaseSession {
     private var handle: OpaquePointer?
     nonisolated let capabilities: DriverCapabilities
 
-    init(path: String, capabilities: DriverCapabilities) async throws {
+    init(path: String, isReadOnly: Bool, capabilities: DriverCapabilities) async throws {
         self.capabilities = capabilities
         var db: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let flags: Int32
+        if isReadOnly {
+            flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX
+        } else {
+            flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        }
         guard sqlite3_open_v2(path, &db, flags, nil) == SQLITE_OK, let db else {
             let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "Unable to open \(path)"
             sqlite3_close_v2(db)
+            if message.localizedCaseInsensitiveContains("authorization denied"), path != ":memory:" {
+                throw DatabaseError.connectionFailed(
+                    SQLiteFileAccessRequirement.missingPermissionMessage(forPath: path)
+                )
+            }
             throw DatabaseError.connectionFailed(message)
         }
         self.handle = db
@@ -51,6 +115,10 @@ actor SQLiteSession: DatabaseSession {
     func close() {
         if let handle { sqlite3_close_v2(handle) }
         handle = nil
+    }
+
+    func ping() async throws {
+        _ = try runQuery(Statement("SELECT 1"))
     }
 
     // MARK: - Introspection

@@ -87,6 +87,37 @@ nonisolated struct ImportFailure: Sendable, Hashable, Identifiable {
     let id: Int
     let statement: String
     let message: String
+    let startLine: Int
+    let endLine: Int
+
+    var lineSummary: String {
+        if startLine == endLine {
+            return "Line \(startLine)"
+        }
+        return "Lines \(startLine)-\(endLine)"
+    }
+}
+
+nonisolated struct ParsedSQLStatement: Sendable, Hashable, Identifiable {
+    let id: Int
+    let sql: String
+    let startLine: Int
+    let endLine: Int
+
+    var lineSummary: String {
+        if startLine == endLine {
+            return "Line \(startLine)"
+        }
+        return "Lines \(startLine)-\(endLine)"
+    }
+
+    var preview: String {
+        sql
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .prefix(220)
+            .description
+    }
 }
 
 nonisolated struct ImportSummary: Sendable, Hashable {
@@ -244,12 +275,18 @@ nonisolated enum CSVCodec {
 /// comments, quoted identifiers, PostgreSQL dollar strings, or MySQL `DELIMITER` blocks.
 nonisolated enum SQLScriptParser {
     static func statements(in script: String) -> [String] {
+        parse(script).map(\.sql)
+    }
+
+    static func parse(_ script: String) -> [ParsedSQLStatement] {
         let characters = Array(script)
-        var statements: [String] = []
+        var statements: [ParsedSQLStatement] = []
         var buffer = ""
         var delimiter = ";"
         var index = 0
         var lineStart = true
+        var currentLine = 1
+        var statementStartLine = 1
         var singleQuoted = false
         var doubleQuoted = false
         var backtickQuoted = false
@@ -257,6 +294,46 @@ nonisolated enum SQLScriptParser {
         var lineComment = false
         var blockComment = false
         var dollarTag: String?
+
+        func recordLineAdvance(for text: some Sequence<Character>) {
+            var sawCarriageReturn = false
+            for character in text {
+                switch character {
+                case "\n":
+                    currentLine += 1
+                    sawCarriageReturn = false
+                case "\r":
+                    currentLine += 1
+                    sawCarriageReturn = true
+                default:
+                    sawCarriageReturn = false
+                }
+            }
+            if sawCarriageReturn {
+                // The next character may be the LF half of CRLF; that line break was already
+                // counted above, so the caller must not count it again.
+            }
+        }
+
+        func append(_ text: String) {
+            if buffer.isEmpty {
+                statementStartLine = currentLine
+            }
+            buffer += text
+            recordLineAdvance(for: text)
+        }
+
+        func append(_ character: Character, next: Character?) {
+            if buffer.isEmpty {
+                statementStartLine = currentLine
+            }
+            buffer.append(character)
+            if character == "\n" {
+                currentLine += 1
+            } else if character == "\r", next != "\n" {
+                currentLine += 1
+            }
+        }
 
         func has(_ token: String, at offset: Int) -> Bool {
             let tokenCharacters = Array(token)
@@ -316,7 +393,14 @@ nonisolated enum SQLScriptParser {
 
         func flush() {
             let statement = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            if containsExecutableSQL(statement) { statements.append(statement) }
+            if containsExecutableSQL(statement) {
+                statements.append(ParsedSQLStatement(
+                    id: statements.count + 1,
+                    sql: statement,
+                    startLine: statementStartLine,
+                    endLine: max(statementStartLine, currentLine)
+                ))
+            }
             buffer.removeAll(keepingCapacity: true)
         }
 
@@ -325,7 +409,7 @@ nonisolated enum SQLScriptParser {
             let next = index + 1 < characters.count ? characters[index + 1] : nil
 
             if lineComment {
-                buffer.append(character)
+                append(character, next: next)
                 if character == "\n" {
                     lineComment = false
                     lineStart = true
@@ -334,9 +418,9 @@ nonisolated enum SQLScriptParser {
                 continue
             }
             if blockComment {
-                buffer.append(character)
+                append(character, next: next)
                 if character == "*", next == "/" {
-                    buffer.append("/")
+                    append("/", next: nil)
                     index += 2
                     blockComment = false
                 } else {
@@ -346,22 +430,22 @@ nonisolated enum SQLScriptParser {
             }
             if let tag = dollarTag {
                 if has(tag, at: index) {
-                    buffer += tag
+                    append(tag)
                     index += tag.count
                     dollarTag = nil
                 } else {
-                    buffer.append(character)
+                    append(character, next: next)
                     index += 1
                 }
                 continue
             }
 
             if singleQuoted || doubleQuoted || backtickQuoted || bracketQuoted {
-                buffer.append(character)
+                append(character, next: next)
                 let closing: Character = singleQuoted ? "'" : doubleQuoted ? "\"" : backtickQuoted ? "`" : "]"
                 if character == closing {
                     if next == closing {
-                        buffer.append(closing)
+                        append(closing, next: nil)
                         index += 2
                         continue
                     }
@@ -404,6 +488,7 @@ nonisolated enum SQLScriptParser {
             // would swallow the rest of the file.
             if has(delimiter, at: index) {
                 flush()
+                recordLineAdvance(for: characters[index..<(index + delimiter.count)])
                 index += delimiter.count
                 lineStart = false
                 continue
@@ -411,19 +496,19 @@ nonisolated enum SQLScriptParser {
 
             if character == "-", next == "-" {
                 lineComment = true
-                buffer += "--"
+                append("--")
                 index += 2
                 continue
             }
             if character == "#" {
                 lineComment = true
-                buffer.append(character)
+                append(character, next: next)
                 index += 1
                 continue
             }
             if character == "/", next == "*" {
                 blockComment = true
-                buffer += "/*"
+                append("/*")
                 index += 2
                 continue
             }
@@ -433,7 +518,7 @@ nonisolated enum SQLScriptParser {
                 if end < characters.count, characters[end] == "$" {
                     let tag = String(characters[index...end])
                     dollarTag = tag
-                    buffer += tag
+                    append(tag)
                     index = end + 1
                     lineStart = false
                     continue
@@ -448,7 +533,18 @@ nonisolated enum SQLScriptParser {
             default: break
             }
 
-            buffer.append(character)
+            if buffer.isEmpty, character.isWhitespace {
+                if character == "\n" {
+                    currentLine += 1
+                } else if character == "\r", next != "\n" {
+                    currentLine += 1
+                }
+                lineStart = character == "\n" || character == "\r"
+                index += 1
+                continue
+            }
+
+            append(character, next: next)
             lineStart = character == "\n" || character == "\r"
             index += 1
         }
@@ -623,7 +719,7 @@ nonisolated enum DataTransferService {
         into session: any DatabaseSession,
         options: SQLImportOptions
     ) async throws -> ImportSummary {
-        let statements = SQLScriptParser.statements(in: script)
+        let statements = SQLScriptParser.parse(script)
         guard !statements.isEmpty else { throw DataTransferError.noContent }
 
         var completed = 0
@@ -632,18 +728,20 @@ nonisolated enum DataTransferService {
         if transactional { _ = try await session.execute(Statement("BEGIN")) }
 
         do {
-            for (index, sql) in statements.enumerated() {
+            for statement in statements {
                 try Task.checkCancellation()
                 do {
-                    _ = try await session.execute(Statement(sql))
+                    _ = try await session.execute(Statement(statement.sql))
                     completed += 1
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
                     failures.append(ImportFailure(
-                        id: index + 1,
-                        statement: String(sql.prefix(300)),
-                        message: error.localizedDescription
+                        id: statement.id,
+                        statement: String(statement.sql.prefix(1_200)),
+                        message: error.localizedDescription,
+                        startLine: statement.startLine,
+                        endLine: statement.endLine
                     ))
                     if options.stopOnError { throw error }
                 }

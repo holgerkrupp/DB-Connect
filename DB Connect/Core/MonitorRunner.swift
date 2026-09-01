@@ -131,8 +131,10 @@ actor MonitorRunner {
               let driver = DriverRegistry.driver(for: connection.driverID) else { return nil }
 
         do {
-            let secret = try KeychainSecretStore().secret(for: connection.id)
-            let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
+            let config = config(for: query, on: connection)
+            let storedSecret = try KeychainSecretStore().secret(for: connection.id)
+            let secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
+            let session = try await driver.connect(config: config, secret: secret)
             let result: ResultSet
             do {
                 result = try await session.query(Statement(query.sql))
@@ -166,12 +168,14 @@ actor MonitorRunner {
             throw DatabaseError.unsupported("Unknown driver “\(connection.driverID)”.")
         }
 
-        let secret = try KeychainSecretStore().secret(for: connection.id)
+        let config = config(for: query, on: connection)
+        let storedSecret = try KeychainSecretStore().secret(for: connection.id)
+        let secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
         if driver.capabilities.requiresCredentials && secret == nil {
             throw DatabaseError.missingCredentials
         }
 
-        let session = try await driver.connect(config: config(for: query, on: connection), secret: secret)
+        let session = try await driver.connect(config: config, secret: secret)
         let result: ResultSet
         do {
             result = try await session.query(Statement(query.sql))

@@ -10,6 +10,7 @@ struct TableBrowserView: View {
     var showsWorkspaceModePicker = false
     /// False when a table list column is on screen, which would make this picker a duplicate.
     var showsTablePicker = true
+    var onConnectionLost: (() -> Void)? = nil
 
     @State private var result: ResultSet?
     @State private var rows: [[SQLValue]] = []
@@ -33,9 +34,14 @@ struct TableBrowserView: View {
     // Editing state. Changes accumulate here and reach the database only on Apply.
     @State private var pending: [RowMutation] = []
     @State private var editingRow: EditingRow?
+    @State private var editingCell: EditableCell?
+    @State private var editingText = ""
     @State private var showsReview = false
     @State private var previewStatements: [String] = []
     @State private var commitError: String?
+    @State private var columnWidths: [String: CGFloat] = [:]
+    @State private var rowHeight: CGFloat = 30
+    @State private var wrapCells = false
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -59,9 +65,6 @@ struct TableBrowserView: View {
                 if !filters.isEmpty {
                     filterChips
                 }
-                if horizontalSizeClass == .compact {
-                    compactTableControls
-                }
                 Divider()
                 content
             }
@@ -73,15 +76,18 @@ struct TableBrowserView: View {
                     pageSize: pageSize,
                     loadedRows: rows.count,
                     totalRows: totalRows,
+                    hasMore: result?.hasMore == true,
                     isLoading: isLoading,
                     onJump: { newOffset in
+                        guard newOffset != offset else { return }
                         offset = newOffset
-                        Task { await loadPage() }
+                        Task { await loadPage(at: newOffset) }
                     },
                     onChangePageSize: { size in
+                        guard size != pageSize else { return }
                         pageSize = size
                         offset = 0
-                        Task { await loadPage() }
+                        Task { await loadPage(at: 0, pageSize: size) }
                     }
                 )
             }
@@ -93,6 +99,9 @@ struct TableBrowserView: View {
             filters = []
             searchText = ""
             offset = 0
+            columnWidths = [:]
+            editingCell = nil
+            editingText = ""
             await loadPage()
         }
         .task(id: tables.map(\.id)) {
@@ -130,7 +139,7 @@ struct TableBrowserView: View {
                     original: editing.values,
                     isInsert: editing.isInsert
                 ) { mutation in
-                    pending.append(mutation)
+                    stage(mutation, against: editing.values)
                 }
             }
         }
@@ -150,6 +159,7 @@ struct TableBrowserView: View {
         }
         .toolbar {
             if horizontalSizeClass != .compact {
+                ToolbarItem(placement: .secondaryAction) { displayMenu }
                 ToolbarItem(placement: .secondaryAction) { filterMenu }
                 if isEditable {
                     ToolbarItemGroup(placement: .primaryAction) {
@@ -190,6 +200,28 @@ struct TableBrowserView: View {
         return described.isEmpty ? (result?.columns ?? []) : described
     }
 
+    private var displayedRows: [[SQLValue]] {
+        guard let result else { return rows }
+        let updates = Dictionary(uniqueKeysWithValues: pending.compactMap { mutation -> (String, [String: SQLValue])? in
+            guard mutation.kind == .update else { return nil }
+            return (mutation.keyDescription, mutation.values)
+        })
+
+        return rows.indices.map { index in
+            var values = rows[index]
+            guard let table = activeTable else { return values }
+            let key = RowMutation.delete(primaryKey: primaryKeyValues(at: index, table: table)).keyDescription
+            guard let changes = updates[key] else { return values }
+            for (columnName, value) in changes {
+                if let position = result.columns.firstIndex(where: { $0.name == columnName }),
+                   values.indices.contains(position) {
+                    values[position] = value
+                }
+            }
+            return values
+        }
+    }
+
     private var dirtyRowIndices: Set<Int> {
         guard let table = activeTable else { return [] }
         let keys = Set(pending.filter { $0.kind != .insert }.map(\.keyDescription))
@@ -213,12 +245,44 @@ struct TableBrowserView: View {
     }
 
     private func rowDictionary(at index: Int) -> [String: SQLValue] {
-        guard let result, rows.indices.contains(index) else { return [:] }
+        rowDictionary(at: index, from: displayedRows)
+    }
+
+    private func rowDictionary(at index: Int, from sourceRows: [[SQLValue]]) -> [String: SQLValue] {
+        guard let result, sourceRows.indices.contains(index) else { return [:] }
         var values: [String: SQLValue] = [:]
-        for (position, column) in result.columns.enumerated() where rows[index].indices.contains(position) {
-            values[column.name] = rows[index][position]
+        for (position, column) in result.columns.enumerated() where sourceRows[index].indices.contains(position) {
+            values[column.name] = sourceRows[index][position]
         }
         return values
+    }
+
+    private func stage(_ mutation: RowMutation, against original: [String: SQLValue] = [:]) {
+        switch mutation.kind {
+        case .insert:
+            pending.append(mutation)
+        case .delete:
+            pending.removeAll { $0.kind == .update && $0.primaryKey == mutation.primaryKey }
+            pending.append(mutation)
+        case .update:
+            let normalized = mutation.values.filter { original[$0.key] != $0.value }
+            if let index = pending.firstIndex(where: { $0.kind == .update && $0.primaryKey == mutation.primaryKey }) {
+                var merged = pending[index].values
+                for (column, value) in normalized {
+                    merged[column] = value
+                }
+                for column in Array(merged.keys) where original[column] == merged[column] {
+                    merged.removeValue(forKey: column)
+                }
+                if merged.isEmpty {
+                    pending.remove(at: index)
+                } else {
+                    pending[index] = .update(primaryKey: mutation.primaryKey, values: merged)
+                }
+            } else if !normalized.isEmpty {
+                pending.append(.update(primaryKey: mutation.primaryKey, values: normalized))
+            }
+        }
     }
 
     private func prepareReview() {
@@ -245,7 +309,103 @@ struct TableBrowserView: View {
         }
     }
 
+    @ViewBuilder
     private var header: some View {
+        if horizontalSizeClass == .compact {
+            compactHeader
+        } else {
+            regularHeader
+        }
+    }
+
+    /// On a phone, the table title needs the full row. Putting the mode picker beside it made
+    /// long names wrap into a narrow column and obscured the current selection.
+    private var compactHeader: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                compactTableSelection
+
+                Spacer(minLength: 4)
+
+                if let result {
+                    Text(statusText(result))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .fixedSize()
+                }
+            }
+
+            HStack(spacing: 8) {
+                if showsWorkspaceModePicker {
+                    WorkspaceModePicker(selection: $workspaceMode, compact: true)
+                }
+
+                Spacer(minLength: 0)
+
+                if isEditable {
+                    Button("Add Row", systemImage: "plus") {
+                        editingRow = EditingRow(values: [:], isInsert: true)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                }
+
+                refreshButton
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+
+                filterMenu
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+
+                displayMenu
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+
+                if !pending.isEmpty {
+                    Button {
+                        prepareReview()
+                    } label: {
+                        Label("Review \(pending.count)", systemImage: "checklist")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glassProminent)
+                    .tint(.orange)
+                    .badge(pending.count)
+                }
+            }
+            .controlSize(.regular)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    @ViewBuilder
+    private var compactTableSelection: some View {
+        if showsTablePicker {
+            Picker("Table", selection: $selectedTable) {
+                ForEach(tables) { table in
+                    Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+                        .lineLimit(1)
+                        .tag(Optional(table))
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let table = activeTable {
+            Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var regularHeader: some View {
         HStack {
             if showsTablePicker {
                 Picker("Table", selection: $selectedTable) {
@@ -254,27 +414,20 @@ struct TableBrowserView: View {
                             .tag(Optional(table))
                     }
                 }
-                .frame(
-                    maxWidth: horizontalSizeClass == .compact ? 130 : 320,
-                    alignment: .leading
-                )
+                .frame(maxWidth: 320, alignment: .leading)
             } else if let table = activeTable {
                 // The list column owns selection, so the header just names what is shown.
                 Label(table.name, systemImage: table.kind == .view ? "eye" : "tablecells")
                     .font(.headline)
             }
 
-            if horizontalSizeClass == .compact {
-                if showsWorkspaceModePicker {
-                    WorkspaceModePicker(selection: $workspaceMode, compact: true)
-                }
-            } else if let table = activeTable, let reason = readOnlyReason(for: table) {
+            if let table = activeTable, let reason = readOnlyReason(for: table) {
                 Label(reason, systemImage: "lock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .help(reason)
             } else if isEditable {
-                Text("Double-click a row to edit")
+                Text("Tap a cell to edit inline, or double-click a row for the full editor")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -292,6 +445,8 @@ struct TableBrowserView: View {
                 .foregroundStyle(.orange)
             }
 
+            refreshButton
+
             if let result {
                 Text(statusText(result))
                     .font(.caption)
@@ -301,6 +456,14 @@ struct TableBrowserView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    private var refreshButton: some View {
+        Button("Refresh Table", systemImage: "arrow.clockwise") {
+            Task { await loadPage() }
+        }
+        .disabled(isLoading)
+        .help("Refresh table")
     }
 
     @ViewBuilder
@@ -316,10 +479,24 @@ struct TableBrowserView: View {
         } else if let result {
             ResultTableView(
                 columns: result.columns,
-                rows: rows,
+                rows: displayedRows,
                 sortOrder: $sortOrder,
+                columnWidths: $columnWidths,
+                editingCell: $editingCell,
+                editingText: $editingText,
+                rowHeight: rowHeight,
+                wrapCells: wrapCells,
                 dirtyRows: dirtyRowIndices,
-                onSelectRow: isEditable ? { index in
+                canEditCell: { index, column in
+                    canEditCell(at: index, column: column)
+                },
+                onBeginEditingCell: { cell in
+                    beginInlineEdit(cell)
+                },
+                onCommitEditingCell: {
+                    commitInlineEdit()
+                },
+                onOpenRow: isEditable ? { index in
                     editingRow = EditingRow(values: rowDictionary(at: index), isInsert: false)
                 } : nil
             )
@@ -336,6 +513,33 @@ struct TableBrowserView: View {
 
     private func statusText(_ result: ResultSet) -> String {
         result.elapsed.formatted(.units(allowed: [.milliseconds], width: .narrow))
+    }
+
+    private var displayMenu: some View {
+        Menu {
+            Button {
+                wrapCells.toggle()
+            } label: {
+                Label("Wrap Cell Text", systemImage: wrapCells ? "checkmark" : "text.justify.left")
+            }
+
+            Menu("Row Height") {
+                ForEach([30, 52, 80, 120], id: \.self) { height in
+                    Button {
+                        rowHeight = CGFloat(height)
+                    } label: {
+                        Label(rowHeightTitle(CGFloat(height)), systemImage: rowHeight == CGFloat(height) ? "checkmark" : "circle")
+                    }
+                }
+            }
+
+            Button("Reset Column Widths") {
+                columnWidths = [:]
+            }
+            .disabled(columnWidths.isEmpty)
+        } label: {
+            Label("Display", systemImage: "slider.horizontal.3")
+        }
     }
 
     /// Translate the table's comparators into the query's ORDER BY.
@@ -360,23 +564,6 @@ struct TableBrowserView: View {
             Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
         }
         .disabled(filterColumns.isEmpty)
-    }
-
-    /// Compact layouts keep table-scoped actions next to the table instead of allowing the
-    /// navigation bar to hide Filter in its automatic overflow menu.
-    private var compactTableControls: some View {
-        HStack {
-            Spacer(minLength: 0)
-            ControlGroup {
-                if isEditable {
-                    rowEditingControls
-                }
-                filterMenu
-            }
-            .labelStyle(.iconOnly)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -427,8 +614,67 @@ struct TableBrowserView: View {
         }
     }
 
-    private func loadPage() async {
+    private func rowHeightTitle(_ height: CGFloat) -> String {
+        switch height {
+        case 30: "Compact"
+        case 52: "Comfortable"
+        case 80: "Tall"
+        default: "Extra Tall"
+        }
+    }
+
+    private func canEditCell(at rowIndex: Int, column: ColumnDescriptor) -> Bool {
+        guard isEditable, column.supportsInlineEditing else { return false }
+        guard let table = activeTable else { return false }
+        return !primaryKeyValues(at: rowIndex, table: table).isEmpty
+    }
+
+    private func beginInlineEdit(_ cell: EditableCell) {
+        guard let result,
+              displayedRows.indices.contains(cell.rowIndex),
+              let columnIndex = result.columns.firstIndex(where: { $0.name == cell.columnName }),
+              displayedRows[cell.rowIndex].indices.contains(columnIndex) else { return }
+        let value = displayedRows[cell.rowIndex][columnIndex]
+        editingText = value.isNull ? "" : value.displayText
+        editingCell = cell
+    }
+
+    private func commitInlineEdit() {
+        guard let cell = editingCell,
+              let table = activeTable,
+              rows.indices.contains(cell.rowIndex),
+              let column = filterColumns.first(where: { $0.name == cell.columnName }) else {
+            editingCell = nil
+            editingText = ""
+            return
+        }
+
+        defer {
+            editingCell = nil
+            editingText = ""
+        }
+
+        let originalValues = rowDictionary(at: cell.rowIndex, from: rows)
+        let originalValue = originalValues[column.name] ?? .null
+        let originalText = originalValue.isNull ? "" : originalValue.displayText
+        guard editingText != originalText else { return }
+
+        let primaryKey = primaryKeyValues(at: cell.rowIndex, table: table)
+        guard !primaryKey.isEmpty else { return }
+
+        stage(
+            .update(primaryKey: primaryKey, values: [column.name: column.bind(editingText)]),
+            against: originalValues
+        )
+    }
+
+    private func loadPage(at requestedOffset: Int? = nil, pageSize requestedPageSize: Int? = nil) async {
         guard let table = activeTable else { return }
+        commitInlineEdit()
+        // Pager actions pass their destination explicitly. Reading `@State` again in the new
+        // asynchronous task can otherwise observe the previous render's offset on iOS.
+        let queryOffset = requestedOffset ?? offset
+        let queryPageSize = requestedPageSize ?? pageSize
         isLoading = true
         errorMessage = nil
         result = nil
@@ -440,8 +686,8 @@ struct TableBrowserView: View {
             sort: sort,
             filters: filters,
             search: searchText.isEmpty ? nil : searchText,
-            limit: pageSize,
-            offset: offset
+            limit: queryPageSize,
+            offset: queryOffset
         )
         do {
             let page = try await session.fetch(request)
@@ -454,14 +700,27 @@ struct TableBrowserView: View {
 
             // Filtering can leave the offset past the end of the new result — fall back to the
             // first page rather than showing a confusing empty grid.
-            if page.rows.isEmpty && offset > 0 {
+            if page.rows.isEmpty && queryOffset > 0 {
                 offset = 0
-                await loadPage()
+                await loadPage(at: 0, pageSize: queryPageSize)
                 return
             }
         } catch {
             errorMessage = error.localizedDescription
+            if isLikelyConnectionFailure(error) {
+                onConnectionLost?()
+            }
         }
         isLoading = false
+    }
+
+    private func isLikelyConnectionFailure(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("not connected")
+            || message.contains("connection")
+            || message.contains("socket")
+            || message.contains("network")
+            || message.contains("timed out")
+            || message.contains("closed")
     }
 }

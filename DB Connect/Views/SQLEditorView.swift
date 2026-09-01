@@ -6,9 +6,11 @@ import SwiftUI
 /// as attributes on the user's own text rather than by drawing a second, overlaid copy — the
 /// overlay approach drifts out of alignment as soon as wrapping or fonts disagree.
 struct SQLEditorView: View {
-    @Binding var text: String
+    @Bindable var draft: ConsoleDraft
     /// Schema for completion. Empty is fine — the editor then suggests keywords only.
     var tables: [TableDescriptor]
+    var favorites: [QueryFavorite]
+    var favoriteContext: QueryFavoriteContext
 
     @State private var attributed = AttributedString()
     @State private var selection = AttributedTextSelection()
@@ -40,16 +42,20 @@ struct SQLEditorView: View {
             .overlay(alignment: .topLeading) { placeholder }
             .overlay(alignment: .bottomLeading) { completionList }
             .onKeyPress(keys: [.upArrow, .downArrow, .return, .tab, .escape], action: handleKey)
-            .task(id: text) {
+            .task(id: draft.sql) {
                 // Adopt external changes (a saved query being loaded) without clobbering the
                 // text the user is actively editing.
-                guard String(attributed.characters) != text else { return }
+                guard String(attributed.characters) != draft.sql else { return }
                 isApplyingEdit = true
-                attributed = SQLSyntax.highlighted(text, colored: syntaxHighlighting)
+                attributed = SQLSyntax.highlighted(draft.sql, colored: syntaxHighlighting)
                 isApplyingEdit = false
             }
+            .onChange(of: draft.pendingFavoriteInsertion?.id) { _, _ in
+                guard let request = draft.pendingFavoriteInsertion else { return }
+                applyFavoriteInsertion(request)
+            }
             .onChange(of: attributed) { _, _ in
-                text = String(attributed.characters)
+                draft.sql = String(attributed.characters)
                 rehighlight()
                 if isApplyingEdit {
                     completion = nil
@@ -171,22 +177,30 @@ struct SQLEditorView: View {
     }
 
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
-        guard let completion else { return .ignored }
+        if let completion {
+            switch press.key {
+            case .escape:
+                self.completion = nil
+                return .handled
+            case .upArrow:
+                highlightedIndex = max(0, highlightedIndex - 1)
+                return .handled
+            case .downArrow:
+                highlightedIndex = min(completion.items.count - 1, highlightedIndex + 1)
+                return .handled
+            case .return, .tab:
+                // ⌘↩ runs the query; a bare Return with the list open accepts the selection.
+                if press.key == .return, press.modifiers.contains(.command) { return .ignored }
+                accept(completion.items[highlightedIndex])
+                return .handled
+            default:
+                return .ignored
+            }
+        }
+
         switch press.key {
-        case .escape:
-            self.completion = nil
-            return .handled
-        case .upArrow:
-            highlightedIndex = max(0, highlightedIndex - 1)
-            return .handled
-        case .downArrow:
-            highlightedIndex = min(completion.items.count - 1, highlightedIndex + 1)
-            return .handled
-        case .return, .tab:
-            // ⌘↩ runs the query; a bare Return with the list open accepts the selection.
-            if press.key == .return, press.modifiers.contains(.command) { return .ignored }
-            accept(completion.items[highlightedIndex])
-            return .handled
+        case .tab:
+            return expandTabTrigger() ? .handled : .ignored
         default:
             return .ignored
         }
@@ -204,11 +218,125 @@ struct SQLEditorView: View {
 
         isApplyingEdit = true
         attributed = SQLSyntax.highlighted(sql, colored: syntaxHighlighting)
-        text = sql
+        draft.sql = sql
         if let index = attributed.characters.index(attributed.startIndex, offsetBy: caret, limitedBy: attributed.endIndex) {
             selection = AttributedTextSelection(range: index..<index)
         }
         isApplyingEdit = false
         self.completion = nil
+    }
+
+    private var selectedOffsets: Range<Int>? {
+        func offset(of index: AttributedString.Index) -> Int {
+            attributed.characters.distance(from: attributed.startIndex, to: index)
+        }
+        switch selection.indices(in: attributed) {
+        case .insertionPoint(let index):
+            let point = offset(of: index)
+            return point..<point
+        case .ranges(let ranges):
+            guard let last = ranges.ranges.last, ranges.ranges.count == 1 else { return nil }
+            return offset(of: last.lowerBound)..<offset(of: last.upperBound)
+        @unknown default:
+            return nil
+        }
+    }
+
+    private func applyFavoriteInsertion(_ request: QueryFavoriteInsertionRequest) {
+        defer { draft.pendingFavoriteInsertion = nil }
+
+        let expansion = QueryFavoriteExpander.expand(request.sql, context: favoriteContext)
+        let sql = String(attributed.characters)
+        let replacementRange: Range<Int>
+
+        switch request.mode {
+        case .replaceEditor:
+            replacementRange = 0..<sql.count
+        case .insertAtCursor:
+            replacementRange = selectedOffsets ?? (sql.count..<sql.count)
+        }
+
+        guard let lower = sql.index(sql.startIndex, offsetBy: replacementRange.lowerBound, limitedBy: sql.endIndex),
+              let upper = sql.index(sql.startIndex, offsetBy: replacementRange.upperBound, limitedBy: sql.endIndex)
+        else { return }
+
+        var updated = sql
+        updated.replaceSubrange(lower..<upper, with: expansion.text)
+
+        let baseOffset = replacementRange.lowerBound
+        let selectedRange = expansion.selectedRange ?? (expansion.cursorOffset.map { $0..<$0 })
+        let finalSelection = selectedRange.map { (baseOffset + $0.lowerBound)..<(baseOffset + $0.upperBound) }
+            ?? (baseOffset + expansion.text.count)..<(baseOffset + expansion.text.count)
+
+        isApplyingEdit = true
+        attributed = SQLSyntax.highlighted(updated, colored: syntaxHighlighting)
+        draft.sql = updated
+        applySelection(finalSelection)
+        isApplyingEdit = false
+        completion = nil
+        draft.favoriteNotice = request.mode == .insertAtCursor
+            ? "Inserted favorite \(request.title)"
+            : "Loaded favorite \(request.title)"
+    }
+
+    private func expandTabTrigger() -> Bool {
+        guard let cursor = cursorOffset else { return false }
+        let sql = String(attributed.characters)
+        guard let triggerRange = tabTriggerRange(in: sql, cursorOffset: cursor) else { return false }
+        let trigger = String(sql[triggerRange])
+        guard let favorite = QueryFavoriteExpander.favorite(matching: trigger, in: favorites) else { return false }
+
+        let expansion = QueryFavoriteExpander.expand(favorite.sql, context: favoriteContext)
+        let lowerOffset = sql.distance(from: sql.startIndex, to: triggerRange.lowerBound)
+        let upperOffset = sql.distance(from: sql.startIndex, to: triggerRange.upperBound)
+        guard let lower = sql.index(sql.startIndex, offsetBy: lowerOffset, limitedBy: sql.endIndex),
+              let upper = sql.index(sql.startIndex, offsetBy: upperOffset, limitedBy: sql.endIndex)
+        else { return false }
+
+        var updated = sql
+        updated.replaceSubrange(lower..<upper, with: expansion.text)
+        let baseOffset = lowerOffset
+        let selectedRange = expansion.selectedRange ?? (expansion.cursorOffset.map { $0..<$0 })
+        let finalSelection = selectedRange.map { (baseOffset + $0.lowerBound)..<(baseOffset + $0.upperBound) }
+            ?? (baseOffset + expansion.text.count)..<(baseOffset + expansion.text.count)
+
+        isApplyingEdit = true
+        attributed = SQLSyntax.highlighted(updated, colored: syntaxHighlighting)
+        draft.sql = updated
+        applySelection(finalSelection)
+        isApplyingEdit = false
+        completion = nil
+        draft.favoriteNotice = "Expanded favorite \(favorite.title)"
+        return true
+    }
+
+    private func tabTriggerRange(in sql: String, cursorOffset: Int) -> Range<String.Index>? {
+        guard cursorOffset > 0,
+              let cursor = sql.index(sql.startIndex, offsetBy: cursorOffset, limitedBy: sql.endIndex)
+        else {
+            return nil
+        }
+
+        var start = cursor
+        while start > sql.startIndex {
+            let previous = sql.index(before: start)
+            let character = sql[previous]
+            guard character.isLetter || character.isNumber || character == "_" else { break }
+            start = previous
+        }
+
+        guard start < cursor else { return nil }
+        let token = sql[start..<cursor]
+        guard token.count >= 2 else { return nil }
+        return start..<cursor
+    }
+
+    private func applySelection(_ offsets: Range<Int>) {
+        guard let lower = attributed.characters.index(attributed.startIndex, offsetBy: offsets.lowerBound, limitedBy: attributed.endIndex),
+              let upper = attributed.characters.index(attributed.startIndex, offsetBy: offsets.upperBound, limitedBy: attributed.endIndex)
+        else {
+            return
+        }
+        selection = AttributedTextSelection(range: lower..<upper)
     }
 }

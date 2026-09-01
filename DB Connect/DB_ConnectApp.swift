@@ -35,6 +35,7 @@ struct DB_ConnectApp: App {
         let schema = Schema([
             Connection.self,
             SavedQuery.self,
+            QueryFavorite.self,
             QueryHistoryEntry.self,
             Monitor.self,
             MonitorActivation.self,

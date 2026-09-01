@@ -27,6 +27,7 @@ struct SettingsView: View {
                 case .editor: EditorSettings()
                 case .names: NameSettings()
                 case .history: HistorySettings()
+                case .connection: ConnectionSettings()
                 }
             }
             .formStyle(.grouped)
@@ -40,6 +41,7 @@ struct SettingsView: View {
             EditorSettings()
             NameSettings()
             HistorySettings()
+            ConnectionSettings()
         }
         .formStyle(.grouped)
     }
@@ -52,6 +54,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case editor
     case names
     case history
+    case connection
 
     var id: String { rawValue }
 
@@ -60,6 +63,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .editor: "Editor"
         case .names: "Names"
         case .history: "History"
+        case .connection: "Connection"
         }
     }
 
@@ -68,6 +72,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .editor: "curlybraces"
         case .names: "text.magnifyingglass"
         case .history: "clock.arrow.circlepath"
+        case .connection: "bolt.horizontal.circle"
         }
     }
 
@@ -76,6 +81,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .editor: .indigo
         case .names: .teal
         case .history: .orange
+        case .connection: .green
         }
     }
 }
@@ -146,6 +152,21 @@ private struct HistorySettings: View {
             Text("History")
         } footer: {
             Text("History keeps the last \(QueryHistoryEntry.limitPerConnection) statements per connection, along with how long each took. Result rows are never stored.")
+        }
+    }
+}
+
+private struct ConnectionSettings: View {
+    @AppStorage(AppSettings.Key.keepConnectionsAlive) private var keepConnectionsAlive = true
+
+    var body: some View {
+        Section {
+            Toggle("Keep connections alive", isOn: $keepConnectionsAlive)
+            Text("Periodically checks open connections and reconnects automatically when saved credentials are available. Actions that need a connection can still recover a stale session.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } header: {
+            Text("Connection")
         }
     }
 }

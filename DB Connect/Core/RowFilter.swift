@@ -83,23 +83,41 @@ nonisolated struct ColumnFilter: Sendable, Hashable, Identifiable {
 }
 
 nonisolated extension ColumnDescriptor {
+    private var normalizedType: String {
+        declaredType.lowercased()
+    }
+
     /// Numbers and dates support ordering comparisons; free text mostly does not.
     var isOrderable: Bool {
-        let type = declaredType.lowercased()
         return ["int", "dec", "num", "float", "double", "real", "date", "time", "year", "money"]
             .contains { type.contains($0) }
     }
 
     /// Binary columns are excluded from text search — casting them is meaningless and slow.
     var isSearchable: Bool {
-        let type = declaredType.lowercased()
         return !["blob", "binary", "bytea", "image"].contains { type.contains($0) }
+    }
+
+    var isBinaryLike: Bool {
+        ["blob", "binary", "bytea", "image"].contains { type.contains($0) }
+    }
+
+    var prefersMultilineEditor: Bool {
+        type.contains("longtext")
+            || type.contains("mediumtext")
+            || type.contains("text")
+            || type.contains("clob")
+            || type.contains("json")
+            || type.contains("xml")
+    }
+
+    var supportsInlineEditing: Bool {
+        !isPrimaryKey && !isGenerated && !isBinaryLike
     }
 
     /// Convert filter text into a value typed to suit the column, so numeric comparisons
     /// compare numerically rather than lexically ("9" > "10" would otherwise be true).
     func bind(_ text: String) -> SQLValue {
-        let type = declaredType.lowercased()
         if type.contains("int") || type.contains("year") {
             if let value = Int64(text) { return .integer(value) }
         }
@@ -114,5 +132,9 @@ nonisolated extension ColumnDescriptor {
             }
         }
         return .text(text)
+    }
+
+    private var type: String {
+        normalizedType
     }
 }

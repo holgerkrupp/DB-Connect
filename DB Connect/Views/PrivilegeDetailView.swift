@@ -16,6 +16,7 @@ struct PrivilegeDetailView: View {
         case general = "General"
         case global = "Global Privileges"
         case schema = "Schema Privileges"
+        case table = "Table Privileges"
         var id: String { rawValue }
     }
 
@@ -30,11 +31,18 @@ struct PrivilegeDetailView: View {
     @State private var editedGlobalGO = false
     @State private var editedSchema: [String: Set<String>] = [:]
     @State private var editedSchemaGO: [String: Bool] = [:]
+    @State private var editedTable: [GrantTableTarget: Set<String>] = [:]
+    @State private var editedTableGO: [GrantTableTarget: Bool] = [:]
 
     @State private var schemaSelection: String?
+    @State private var tableDatabaseSelection: String?
+    @State private var tableSelection: String?
+    @State private var tableChoicesByDatabase: [String: [String]] = [:]
     @State private var isLoading = true
     @State private var isApplying = false
     @State private var errorMessage: String?
+    @State private var tableLoadError: String?
+    @State private var isLoadingTableChoices = false
 
     // Account actions.
     @State private var showsPasswordChange = false
@@ -96,6 +104,7 @@ struct PrivilegeDetailView: View {
             Text("General").tag(Tab.general)
             Text("Global").tag(Tab.global)
             Text("Schema").tag(Tab.schema)
+            Text("Table").tag(Tab.table)
         }
         .pickerStyle(.segmented)
         .labelsHidden()
@@ -113,6 +122,7 @@ struct PrivilegeDetailView: View {
             case .general: generalTab
             case .global: globalTab
             case .schema: schemaTab
+            case .table: tableTab
             }
         }
     }
@@ -208,6 +218,67 @@ struct PrivilegeDetailView: View {
         }
     }
 
+    private var tableTab: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Database", selection: $tableDatabaseSelection) {
+                    Text("Choose a database…").tag(String?.none)
+                    ForEach(tableDatabaseChoices, id: \.self) { Text($0).tag(String?.some($0)) }
+                }
+
+                Picker("Table", selection: $tableSelection) {
+                    Text(tableDatabaseSelection == nil ? "Choose a database first…" : "Choose a table…").tag(String?.none)
+                    ForEach(tableChoices, id: \.self) { Text($0).tag(String?.some($0)) }
+                }
+                .disabled(tableDatabaseSelection == nil || isLoadingTableChoices)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+
+            Divider()
+
+            Group {
+                if isLoadingTableChoices {
+                    DatabaseLoadingView("Loading tables…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let tableLoadError {
+                    ContentUnavailableView("Cannot Load Tables", systemImage: "exclamationmark.triangle", description: Text(tableLoadError))
+                } else if let database = tableDatabaseSelection, let table = tableSelection {
+                    let target = GrantTableTarget(database: database, table: table)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Privileges granted on **\(target.qualifiedName)** (`\(database).\(table)`).")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+
+                            PrivilegeGroupsView(
+                                privileges: catalog.filter(\.schemaApplicable),
+                                selected: tableBinding(for: target),
+                                grantOption: tableGrantOptionBinding(for: target)
+                            )
+
+                            selectionButtons(
+                                checkAll: {
+                                    editedTable[target] = Set(catalog.filter { $0.schemaApplicable && !$0.isGrantOption }.map(\.sql))
+                                    editedTableGO[target] = true
+                                },
+                                uncheckAll: { editedTable[target] = []; editedTableGO[target] = false }
+                            )
+                        }
+                        .padding(16)
+                    }
+                } else if tableDatabaseSelection == nil {
+                    ContentUnavailableView("No Database Selected", systemImage: "cylinder.split.1x2",
+                                           description: Text("Pick a database to edit one table’s privileges for this account."))
+                } else {
+                    ContentUnavailableView("No Table Selected", systemImage: "tablecells",
+                                           description: Text("Pick a table to edit its single-table privileges for this account."))
+                }
+            }
+        }
+        .task(id: tableDatabaseSelection) { await refreshTableChoices(for: tableDatabaseSelection) }
+    }
+
     private func selectionButtons(checkAll: @escaping () -> Void, uncheckAll: @escaping () -> Void) -> some View {
         HStack {
             Button("Check All", action: checkAll)
@@ -281,6 +352,33 @@ struct PrivilegeDetailView: View {
         )
     }
 
+    private var tableDatabaseChoices: [String] {
+        Set(databases)
+            .union(current.table.keys.map(\.database))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private var tableChoices: [String] {
+        guard let database = tableDatabaseSelection else { return [] }
+        return Set(tableChoicesByDatabase[database] ?? [])
+            .union(current.table.keys.filter { $0.database == database }.map(\.table))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    private func tableBinding(for target: GrantTableTarget) -> Binding<Set<String>> {
+        Binding(
+            get: { editedTable[target] ?? current.table[target] ?? [] },
+            set: { editedTable[target] = $0 }
+        )
+    }
+
+    private func tableGrantOptionBinding(for target: GrantTableTarget) -> Binding<Bool> {
+        Binding(
+            get: { editedTableGO[target] ?? current.tableGrantOption[target] ?? false },
+            set: { editedTableGO[target] = $0 }
+        )
+    }
+
     // MARK: - Diff
 
     /// The scopes whose edited state differs from the server, each with the sets needed to sync.
@@ -293,6 +391,19 @@ struct PrivilegeDetailView: View {
             let desired = editedSchema[db] ?? current.schema[db] ?? []
             let desiredGO = editedSchemaGO[db] ?? current.schemaGrantOption[db] ?? false
             out.append((.database(db), desired, desiredGO, current.schema[db] ?? [], current.schemaGrantOption[db] ?? false))
+        }
+
+        let tables = Set(editedTable.keys).union(current.table.keys)
+        for target in tables {
+            let desired = editedTable[target] ?? current.table[target] ?? []
+            let desiredGO = editedTableGO[target] ?? current.tableGrantOption[target] ?? false
+            out.append((
+                .table(database: target.database, table: target.table),
+                desired,
+                desiredGO,
+                current.table[target] ?? [],
+                current.tableGrantOption[target] ?? false
+            ))
         }
 
         return out
@@ -311,6 +422,8 @@ struct PrivilegeDetailView: View {
         rawGrants = lines
         current = MySQLGrantParser.parse(lines)
         seedEdits(from: current)
+        syncSelections()
+        await refreshTableChoices(for: tableDatabaseSelection)
         isLoading = false
     }
 
@@ -319,6 +432,61 @@ struct PrivilegeDetailView: View {
         editedGlobalGO = grants.globalGrantOption
         editedSchema = grants.schema
         editedSchemaGO = grants.schemaGrantOption
+        editedTable = grants.table
+        editedTableGO = grants.tableGrantOption
+    }
+
+    private func syncSelections() {
+        if let schemaSelection, !schemaDatabaseChoices.contains(schemaSelection) {
+            self.schemaSelection = nil
+        }
+        if self.schemaSelection == nil {
+            self.schemaSelection = schemaDatabaseChoices.first
+        }
+
+        if let tableDatabaseSelection, !tableDatabaseChoices.contains(tableDatabaseSelection) {
+            self.tableDatabaseSelection = nil
+        }
+        if self.tableDatabaseSelection == nil {
+            self.tableDatabaseSelection = tableDatabaseChoices.first
+        }
+        syncTableSelection()
+    }
+
+    private func syncTableSelection() {
+        guard let tableDatabaseSelection else {
+            tableSelection = nil
+            return
+        }
+        let choices = Set(tableChoicesByDatabase[tableDatabaseSelection] ?? [])
+            .union(current.table.keys.filter { $0.database == tableDatabaseSelection }.map(\.table))
+        if let tableSelection, choices.contains(tableSelection) {
+            return
+        }
+        self.tableSelection = choices.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }.first
+    }
+
+    private func refreshTableChoices(for database: String?) async {
+        tableLoadError = nil
+        guard let database else {
+            tableSelection = nil
+            return
+        }
+        if tableChoicesByDatabase[database] != nil {
+            syncTableSelection()
+            return
+        }
+
+        isLoadingTableChoices = true
+        defer { isLoadingTableChoices = false }
+
+        do {
+            let names = try await session.tables(in: database).map(\.name)
+            tableChoicesByDatabase[database] = names.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            syncTableSelection()
+        } catch {
+            tableLoadError = error.localizedDescription
+        }
     }
 
     private func apply() async {

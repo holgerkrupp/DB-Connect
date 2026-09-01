@@ -23,14 +23,34 @@ final class Connection {
     var pinnedCertificatePEM: String?
     /// When set, the UI refuses all writes on this connection regardless of driver capabilities.
     var isReadOnly: Bool = false
+    var transportMode: String = ConnectionTransportMode.tcp.rawValue
+    var socketPath: String = ""
+    var authenticationMode: String = DatabaseAuthenticationMode.password.rawValue
+    var awsRegion: String = ""
+    var sshTunnelEnabled: Bool = false
+    var sshHost: String = ""
+    var sshPort: Int = 22
+    var sshUsername: String = ""
+    var sshAuthenticationMode: String = SSHTunnelAuthenticationMode.agent.rawValue
     /// Security-scoped bookmark for file-based drivers, so a sandboxed app can reopen the
     /// user-picked file after relaunch. Device-specific by nature — it will not sync usefully.
     var fileBookmark: Data?
+    /// SQLite commonly needs sibling WAL, SHM, or rollback-journal files beside the database.
+    /// A folder bookmark gives the sandbox access to those companion files when the connection
+    /// is writable.
+    var fileContainerBookmark: Data?
+    /// Remembers which device last granted local file access, so a synced SQLite connection can
+    /// explain why it is inactive on another device instead of just failing to connect.
+    var fileAccessOwnerDeviceID: String?
+    var fileAccessOwnerDeviceName: String?
     var sortOrder: Int = 0
     var createdAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade, inverse: \SavedQuery.connection)
     var savedQueries: [SavedQuery]? = []
+
+    @Relationship(deleteRule: .cascade, inverse: \QueryFavorite.connection)
+    var queryFavorites: [QueryFavorite]? = []
 
     /// Automatically recorded statements. Cascade: history is meaningless without its connection.
     @Relationship(deleteRule: .cascade, inverse: \QueryHistoryEntry.connection)
@@ -48,10 +68,28 @@ final class Connection {
             port: port,
             database: database,
             username: username,
+            isReadOnly: isReadOnly,
             tls: TLSMode(rawValue: tlsMode) ?? .required,
             certificateFingerprint: certificateFingerprint,
-            pinnedCertificatePEM: pinnedCertificatePEM
+            pinnedCertificatePEM: pinnedCertificatePEM,
+            socketPath: transport == .unixSocket ? socketPath : "",
+            authentication: DatabaseAuthenticationConfiguration(
+                mode: DatabaseAuthenticationMode(rawValue: authenticationMode) ?? .password,
+                awsRegion: awsRegion
+            ),
+            sshTunnel: sshTunnelEnabled
+                ? SSHTunnelConfiguration(
+                    host: sshHost,
+                    port: sshPort,
+                    username: sshUsername,
+                    authenticationMode: SSHTunnelAuthenticationMode(rawValue: sshAuthenticationMode) ?? .agent
+                )
+                : nil
         )
+    }
+
+    var transport: ConnectionTransportMode {
+        ConnectionTransportMode(rawValue: transportMode) ?? .tcp
     }
 }
 
@@ -83,5 +121,49 @@ final class SavedQuery {
     init(title: String, sql: String) {
         self.title = title
         self.sql = sql
+    }
+}
+
+nonisolated enum QueryFavoriteScope: String, Sendable, Hashable, CaseIterable, Identifiable {
+    case connection
+    case global
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .connection: "This Connection"
+        case .global: "Global"
+        }
+    }
+}
+
+@Model
+final class QueryFavorite {
+    var id: UUID = UUID()
+    var title: String = ""
+    var sql: String = ""
+    var tabTrigger: String = ""
+    var createdAt: Date = Date.now
+    var updatedAt: Date = Date.now
+    /// Nil means a global favorite; otherwise it is scoped to one connection.
+    var connection: Connection?
+
+    init(title: String, sql: String, tabTrigger: String = "") {
+        self.title = title
+        self.sql = sql
+        self.tabTrigger = tabTrigger
+    }
+
+    var scope: QueryFavoriteScope {
+        connection == nil ? .global : .connection
+    }
+
+    func update(title: String, sql: String, tabTrigger: String, connection: Connection?) {
+        self.title = title
+        self.sql = sql
+        self.tabTrigger = tabTrigger
+        self.connection = connection
+        self.updatedAt = .now
     }
 }

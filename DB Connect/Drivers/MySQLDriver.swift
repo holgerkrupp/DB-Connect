@@ -34,6 +34,7 @@ nonisolated struct MySQLDriver: DatabaseDriver {
 
 actor MySQLSession: DatabaseSession {
     private var connection: MySQLConnection?
+    private var tunnel: OpenSSHTunnel?
     /// Mutable: `use(database:)` switches it without reconnecting.
     private var database: String
     private let logger = Logger(label: "de.holgerkrupp.DB-Connect.mysql")
@@ -42,27 +43,39 @@ actor MySQLSession: DatabaseSession {
     init(config: ConnectionConfig, secret: Secret?, capabilities: DriverCapabilities) async throws {
         self.capabilities = capabilities
         self.database = config.database
-
-        let port = config.port == 0 ? MySQLDriver.defaultPort : config.port
-        let address: SocketAddress
-        do {
-            address = try SocketAddress.makeAddressResolvingHost(config.host, port: port)
-        } catch {
-            throw DatabaseError.connectionFailed("Could not resolve “\(config.host)”.")
-        }
+        let runtimeSecret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: secret)
+        let endpoint = try await ServerEndpointResolver.resolve(config: config, secret: runtimeSecret)
 
         do {
-            self.connection = try await MySQLConnection.connect(
-                to: address,
-                username: config.username,
-                database: config.database,
-                password: secret?.password,
-                tlsConfiguration: try Self.makeTLS(for: config),
-                serverHostname: config.host,
-                logger: logger,
-                on: MultiThreadedEventLoopGroup.singleton.any()
-            ).get()
+            switch endpoint {
+            case .tcp(let address, let serverHostname, let tunnel):
+                self.tunnel = tunnel
+                self.connection = try await MySQLConnection.connect(
+                    to: address,
+                    username: config.username,
+                    database: config.database,
+                    password: runtimeSecret?.password,
+                    tlsConfiguration: try Self.makeTLS(for: config),
+                    serverHostname: serverHostname,
+                    logger: logger,
+                    on: MultiThreadedEventLoopGroup.singleton.any()
+                ).get()
+            case .unixSocket(let path):
+                self.connection = try await MySQLConnection.connect(
+                    to: try SocketAddress(unixDomainSocketPath: path),
+                    username: config.username,
+                    database: config.database,
+                    password: runtimeSecret?.password,
+                    tlsConfiguration: nil,
+                    serverHostname: nil,
+                    logger: logger,
+                    on: MultiThreadedEventLoopGroup.singleton.any()
+                ).get()
+            }
         } catch {
+            let openedTunnel = self.tunnel
+            self.tunnel = nil
+            await MainActor.run { openedTunnel?.close() }
             throw DatabaseError.connectionFailed(Self.explain(error))
         }
     }
@@ -121,8 +134,15 @@ actor MySQLSession: DatabaseSession {
         // tear down the same channel. The local keeps MySQLConnection alive until NIO confirms
         // the channel is inactive; releasing it any earlier trips MySQLNIO's deinit assertion.
         let closing = connection
+        let closingTunnel = tunnel
         connection = nil
+        tunnel = nil
         try? await closing?.close().get()
+        await MainActor.run { closingTunnel?.close() }
+    }
+
+    func ping() async throws {
+        _ = try await runQuery(Statement("SELECT 1"))
     }
 
     // MARK: - Databases
@@ -157,6 +177,14 @@ actor MySQLSession: DatabaseSession {
     // MARK: - Introspection
 
     func tables() async throws -> [TableDescriptor] {
+        try await listTables(in: database)
+    }
+
+    func tables(in database: String) async throws -> [TableDescriptor] {
+        try await listTables(in: database)
+    }
+
+    private func listTables(in database: String) async throws -> [TableDescriptor] {
         let listing = try await runQuery(Statement(
             """
             SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES
@@ -167,7 +195,7 @@ actor MySQLSession: DatabaseSession {
         ))
 
         // One pass for all columns beats one query per table on a wide database.
-        let columnsByTable = try await allColumns()
+        let columnsByTable = try await allColumns(in: database)
 
         return listing.rows.compactMap { row -> TableDescriptor? in
             guard case .text(let name) = row[0] else { return nil }
@@ -207,7 +235,7 @@ actor MySQLSession: DatabaseSession {
         return nil
     }
 
-    private func allColumns() async throws -> [String: [ColumnDescriptor]] {
+    private func allColumns(in database: String) async throws -> [String: [ColumnDescriptor]] {
         let result = try await runQuery(Statement(
             """
             SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY, COLUMN_DEFAULT, EXTRA

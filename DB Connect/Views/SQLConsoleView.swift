@@ -5,18 +5,21 @@ import SwiftData
 struct SQLConsoleView: View {
     let session: any DatabaseSession
     let connection: Connection
+    let selectedTable: TableDescriptor?
     /// Query text, results and cached schema, owned by the parent so they survive a switch to
     /// the table browser and back.
     @Bindable var draft: ConsoleDraft
     @Binding var workspaceMode: WorkspaceMode
     var showsWorkspaceModePicker = false
+    var onConnectionLost: (() -> Void)? = nil
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Query(sort: \QueryFavorite.title) private var allFavorites: [QueryFavorite]
 
     @State private var isRunning = false
     @State private var showsQueryLibrary = false
-    @State private var queryLibrarySection = QueryLibrarySection.saved
+    @State private var queryLibrarySection = QueryLibrarySection.favorites
     @State private var startsQuerySave = false
 
     @AppStorage(AppSettings.Key.identifierCorrection)
@@ -55,7 +58,7 @@ struct SQLConsoleView: View {
                     startsQuerySave = false
                     showsQueryLibrary = true
                 }
-                .help("Saved queries and recent history")
+                .help("Favorites, saved queries, and recent history")
             }
             ToolbarItem(placement: .primaryAction) {
                 // The ⌘↩ shortcut lives on the Query menu item instead — binding it in both
@@ -67,6 +70,12 @@ struct SQLConsoleView: View {
         .focusedSceneValue(\.consoleActions, ConsoleActions(
             run: { run() },
             canRun: !trimmedSQL.isEmpty && !isRunning,
+            showFavorites: {
+                queryLibrarySection = .favorites
+                startsQuerySave = false
+                showsQueryLibrary = true
+            },
+            canShowFavorites: true,
             saveQuery: {
                 queryLibrarySection = .saved
                 startsQuerySave = true
@@ -94,7 +103,12 @@ struct SQLConsoleView: View {
     }
 
     private var editor: some View {
-        SQLEditorView(text: $draft.sql, tables: draft.schema)
+        SQLEditorView(
+            draft: draft,
+            tables: draft.schema,
+            favorites: visibleFavorites,
+            favoriteContext: favoriteContext
+        )
     }
 
     private var identifierIssues: [SQLIdentifierCorrection.Issue] {
@@ -106,10 +120,15 @@ struct SQLConsoleView: View {
     @ViewBuilder
     private var suggestionBar: some View {
         let pending = identifierIssues.filter { !correctionMode.autoApplies($0.confidence) }
-        if !pending.isEmpty || draft.correctionNotice != nil {
+        if !pending.isEmpty || draft.correctionNotice != nil || draft.favoriteNotice != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let correctionNotice = draft.correctionNotice {
                     Label(correctionNotice, systemImage: "wand.and.sparkles")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let favoriteNotice = draft.favoriteNotice {
+                    Label(favoriteNotice, systemImage: "star.fill")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -135,6 +154,18 @@ struct SQLConsoleView: View {
             .padding(.vertical, 6)
             .background(.quaternary.opacity(0.2))
         }
+    }
+
+    private var visibleFavorites: [QueryFavorite] {
+        QueryFavoriteExpander.visibleFavorites(all: allFavorites, for: connection)
+    }
+
+    private var favoriteContext: QueryFavoriteContext {
+        QueryFavoriteContext(
+            connectionName: connection.name,
+            databaseName: draft.database,
+            tableName: selectedTable?.name
+        )
     }
 
     private func apply(_ issues: [SQLIdentifierCorrection.Issue]) {
@@ -269,6 +300,9 @@ struct SQLConsoleView: View {
             } catch {
                 failure = error.localizedDescription
                 draft.errorMessage = failure
+                if isLikelyConnectionFailure(error) {
+                    onConnectionLost?()
+                }
             }
             isRunning = false
 
@@ -287,6 +321,16 @@ struct SQLConsoleView: View {
                 )
             }
         }
+    }
+
+    private func isLikelyConnectionFailure(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("not connected")
+            || message.contains("connection")
+            || message.contains("socket")
+            || message.contains("network")
+            || message.contains("timed out")
+            || message.contains("closed")
     }
 
     /// Sorts the returned page in memory. If the result was truncated at the row cap this is

@@ -9,6 +9,56 @@ nonisolated enum TLSMode: String, Sendable, Hashable, CaseIterable {
     case pinned
 }
 
+nonisolated enum ConnectionTransportMode: String, Sendable, Hashable, CaseIterable {
+    case tcp
+    case unixSocket
+}
+
+nonisolated enum DatabaseAuthenticationMode: String, Sendable, Hashable, CaseIterable {
+    case password
+    case awsIAM
+}
+
+/// The database-auth path for one connection.
+///
+/// This stays intentionally small today. Future ephemeral providers such as Vault or OIDC should
+/// extend this typed surface rather than inventing driver-specific option keys.
+nonisolated struct DatabaseAuthenticationConfiguration: Sendable, Hashable {
+    var mode: DatabaseAuthenticationMode
+    /// Used by AWS IAM authentication.
+    var awsRegion: String
+
+    init(mode: DatabaseAuthenticationMode = .password, awsRegion: String = "") {
+        self.mode = mode
+        self.awsRegion = awsRegion
+    }
+}
+
+nonisolated enum SSHTunnelAuthenticationMode: String, Sendable, Hashable, CaseIterable {
+    case agent
+    case password
+    case privateKey
+}
+
+nonisolated struct SSHTunnelConfiguration: Sendable, Hashable {
+    var host: String
+    var port: Int
+    var username: String
+    var authenticationMode: SSHTunnelAuthenticationMode
+
+    init(
+        host: String,
+        port: Int = 22,
+        username: String,
+        authenticationMode: SSHTunnelAuthenticationMode = .agent
+    ) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.authenticationMode = authenticationMode
+    }
+}
+
 /// Everything needed to reach a database except the secret.
 ///
 /// Secrets deliberately live only in the Keychain (`DBSecrets`) and are passed separately at
@@ -20,11 +70,16 @@ nonisolated struct ConnectionConfig: Sendable, Hashable {
     /// For file-based drivers such as SQLite this holds the file path.
     var database: String
     var username: String
+    var isReadOnly: Bool
     var tls: TLSMode
     var certificateFingerprint: String?
     /// The server certificate to pin to, PEM encoded. Public data, so it lives with the config
     /// rather than in the Keychain.
     var pinnedCertificatePEM: String?
+    /// Local socket path for engines such as MySQL. Empty means a normal TCP connection.
+    var socketPath: String
+    var authentication: DatabaseAuthenticationConfiguration
+    var sshTunnel: SSHTunnelConfiguration?
     /// Driver-specific extras, kept out of the typed surface so adding a driver needs no core change.
     var options: [String: String]
 
@@ -34,9 +89,13 @@ nonisolated struct ConnectionConfig: Sendable, Hashable {
         port: Int = 0,
         database: String = "",
         username: String = "",
+        isReadOnly: Bool = false,
         tls: TLSMode = .required,
         certificateFingerprint: String? = nil,
         pinnedCertificatePEM: String? = nil,
+        socketPath: String = "",
+        authentication: DatabaseAuthenticationConfiguration = .init(),
+        sshTunnel: SSHTunnelConfiguration? = nil,
         options: [String: String] = [:]
     ) {
         self.driverID = driverID
@@ -44,9 +103,13 @@ nonisolated struct ConnectionConfig: Sendable, Hashable {
         self.port = port
         self.database = database
         self.username = username
+        self.isReadOnly = isReadOnly
         self.tls = tls
         self.certificateFingerprint = certificateFingerprint
         self.pinnedCertificatePEM = pinnedCertificatePEM
+        self.socketPath = socketPath
+        self.authentication = authentication
+        self.sshTunnel = sshTunnel
         self.options = options
     }
 }
@@ -123,14 +186,41 @@ nonisolated extension DatabaseError: LocalizedError {
 nonisolated struct Secret: Sendable, Hashable, Codable {
     var password: String?
     var apiToken: String?
+    var sshPassword: String?
     var sshPrivateKey: String?
     var sshPassphrase: String?
+    var awsAccessKeyID: String?
+    var awsSecretAccessKey: String?
+    var awsSessionToken: String?
 
-    init(password: String? = nil, apiToken: String? = nil, sshPrivateKey: String? = nil, sshPassphrase: String? = nil) {
+    init(
+        password: String? = nil,
+        apiToken: String? = nil,
+        sshPassword: String? = nil,
+        sshPrivateKey: String? = nil,
+        sshPassphrase: String? = nil,
+        awsAccessKeyID: String? = nil,
+        awsSecretAccessKey: String? = nil,
+        awsSessionToken: String? = nil
+    ) {
         self.password = password
         self.apiToken = apiToken
+        self.sshPassword = sshPassword
         self.sshPrivateKey = sshPrivateKey
         self.sshPassphrase = sshPassphrase
+        self.awsAccessKeyID = awsAccessKeyID
+        self.awsSecretAccessKey = awsSecretAccessKey
+        self.awsSessionToken = awsSessionToken
+    }
+}
+
+nonisolated extension Secret {
+    var hasPersistedValue: Bool {
+        [password, apiToken, sshPassword, sshPrivateKey, sshPassphrase, awsAccessKeyID, awsSecretAccessKey, awsSessionToken]
+            .contains { value in
+                guard let value else { return false }
+                return !value.isEmpty
+            }
     }
 }
 
@@ -154,6 +244,10 @@ nonisolated protocol DatabaseSession: Sendable {
     var currentDatabase: String? { get async }
 
     func tables() async throws -> [TableDescriptor]
+    /// Tables in a database without switching the session's active database. This is used by
+    /// MySQL-specific account and metadata tools that need to inspect another database while the
+    /// main workspace stays where it is.
+    func tables(in database: String) async throws -> [TableDescriptor]
     func describe(table: String, schema: String?) async throws -> TableDescriptor
     /// The engine's own CREATE statement, when it exposes one. Transfer exports use this in
     /// preference to reconstructing a definition from column metadata, preserving indexes,
@@ -209,6 +303,22 @@ nonisolated protocol DatabaseSession: Sendable {
     func dropTable(_ table: TableDescriptor) async throws
     func createDatabase(name: String) async throws
 
+    // MARK: MySQL / MariaDB administration
+
+    /// MySQL- and MariaDB-specific admin capabilities. Drivers that do not model these return
+    /// `.none`, which keeps the corresponding UI hidden.
+    var mysqlAdmin: MySQLAdminCapability { get async }
+    func mysqlTableMetadata(for target: GrantTableTarget) async throws -> MySQLTableMetadata
+    func mysqlForeignKeyRelations(for target: GrantTableTarget) async throws -> [MySQLForeignKeyRelation]
+    func mysqlTriggers(for target: GrantTableTarget) async throws -> [MySQLTriggerInfo]
+    func mysqlServerVariables() async throws -> [MySQLServerVariable]
+    func mysqlProcesses() async throws -> [MySQLProcessInfo]
+    func mysqlFlushPrivileges() async throws
+
+    /// Performs a cheap round trip to verify that the live session is still usable.
+    /// Drivers should override this with their lightest native health check.
+    func ping() async throws
+
     func close() async
 }
 
@@ -226,8 +336,19 @@ nonisolated extension DatabaseSession {
 
     func count(_ request: RowRequest) async throws -> Int? { nil }
 
+    func ping() async throws {
+        _ = try await tables()
+    }
+
     func definitionSQL(for table: TableDescriptor) async throws -> String? { nil }
     func deferredDefinitionSQL(for table: TableDescriptor) async throws -> [String] { [] }
+
+    func tables(in database: String) async throws -> [TableDescriptor] {
+        if await currentDatabase == database {
+            return try await tables()
+        }
+        throw DatabaseError.unsupported("This connection cannot inspect tables in another database without switching to it.")
+    }
 
     // User management is opt-in: drivers that do not implement it report no capability and
     // throw, so the UI never offers an action that cannot work.
@@ -289,6 +410,34 @@ nonisolated extension DatabaseSession {
 
     func createDatabase(name: String) async throws {
         throw DatabaseError.unsupported("This connection cannot create databases.")
+    }
+
+    var mysqlAdmin: MySQLAdminCapability {
+        get async { .none }
+    }
+
+    func mysqlTableMetadata(for target: GrantTableTarget) async throws -> MySQLTableMetadata {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
+    }
+
+    func mysqlForeignKeyRelations(for target: GrantTableTarget) async throws -> [MySQLForeignKeyRelation] {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
+    }
+
+    func mysqlTriggers(for target: GrantTableTarget) async throws -> [MySQLTriggerInfo] {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
+    }
+
+    func mysqlServerVariables() async throws -> [MySQLServerVariable] {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
+    }
+
+    func mysqlProcesses() async throws -> [MySQLProcessInfo] {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
+    }
+
+    func mysqlFlushPrivileges() async throws {
+        throw DatabaseError.unsupported("This connection does not expose MySQL administration.")
     }
 
     /// Shared implementation for SQL drivers: create a table from a spec in one statement.

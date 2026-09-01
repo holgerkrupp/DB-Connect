@@ -35,14 +35,17 @@ struct MonitorEditorView: View {
     @State private var messageTemplate = ""
     @State private var fieldDrafts: [NotificationTemplateEditor.FieldDraft] = []
     @State private var showsHistory = false
+    @State private var autoSaveTask: Task<Void, Never>?
+    @State private var lastSavedSnapshot = AutoSaveSnapshot.empty
 
-    // Inline query editing. `querySource` decides whether Save reuses an existing query or
+    // Inline query editing. `querySource` decides whether the monitor reuses an existing query or
     // creates a fresh one; the rest mirror the fields of the query being written.
     @State private var querySource: QuerySource = .new
     @State private var queryTitle = ""
     @State private var queryConnection: Connection?
     @State private var queryDatabase = ""
     @State private var querySQL = ""
+    @State private var queryDraft = ConsoleDraft()
     @State private var databaseOptions: [String] = []
     @State private var isLoadingDatabases = false
 
@@ -104,6 +107,61 @@ struct MonitorEditorView: View {
         var id: String { rawValue }
         var title: String { rawValue.capitalized }
         var multiplier: Int { self == .minutes ? 1 : 60 }
+    }
+
+    /// A compact copy of the editor state used to debounce auto-save without diffing models.
+    private struct AutoSaveSnapshot: Equatable {
+        struct FieldSnapshot: Equatable {
+            let id: UUID
+            let token: String
+            let queryID: UUID?
+            let column: String
+            let formatRaw: String
+        }
+
+        let title: String
+        let ruleType: String
+        let threshold: Double
+        let intervalMinutes: Int
+        let schedulePreset: String
+        let scheduleKind: String
+        let scheduledMinuteOfDay: Int
+        let comparisonColumn: String
+        let cooldownMinutes: Int
+        let quietStart: Int
+        let quietEnd: Int
+        let runsOnThisDevice: Bool
+        let messageTemplate: String
+        let queryUsesExisting: Bool
+        let selectedQueryID: UUID?
+        let queryTitle: String
+        let queryConnectionID: UUID?
+        let queryDatabase: String
+        let querySQL: String
+        let fieldDrafts: [FieldSnapshot]
+
+        static let empty = AutoSaveSnapshot(
+            title: "",
+            ruleType: MonitorRule.Kind.changedByAtLeast.rawValue,
+            threshold: 1,
+            intervalMinutes: 60,
+            schedulePreset: SchedulePreset.hourly.rawValue,
+            scheduleKind: MonitorScheduleKind.interval.rawValue,
+            scheduledMinuteOfDay: 9 * 60,
+            comparisonColumn: "",
+            cooldownMinutes: 0,
+            quietStart: 0,
+            quietEnd: 0,
+            runsOnThisDevice: true,
+            messageTemplate: "",
+            queryUsesExisting: false,
+            selectedQueryID: nil,
+            queryTitle: "",
+            queryConnectionID: nil,
+            queryDatabase: "",
+            querySQL: "",
+            fieldDrafts: []
+        )
     }
 
     var body: some View {
@@ -243,11 +301,12 @@ struct MonitorEditorView: View {
         }
         .formStyle(.grouped)
         .safeAreaInset(edge: .top, spacing: 0) { header }
-        .safeAreaBar(edge: .bottom) { actionBar }
+        .toolbar { toolbarContent }
         .sheet(isPresented: $showsHistory) {
             if let monitor { MonitorHistoryView(monitor: monitor) }
         }
         .onAppear(perform: populate)
+        .onDisappear { autoSaveTask?.cancel() }
         .onChange(of: querySource) { _, newValue in
             adopt(newValue)
         }
@@ -266,6 +325,24 @@ struct MonitorEditorView: View {
         // List databases whenever the target connection changes, so the picker can offer them.
         // A failure just leaves the free-text field, which still lets the name be typed by hand.
         .task(id: queryConnection?.id) { await loadDatabases() }
+        .onAppear {
+            if queryDraft.sql != querySQL {
+                queryDraft.sql = querySQL
+            }
+        }
+        .onChange(of: querySQL) { _, newValue in
+            if queryDraft.sql != newValue {
+                queryDraft.sql = newValue
+            }
+        }
+        .onChange(of: queryDraft.sql) { _, newValue in
+            if querySQL != newValue {
+                querySQL = newValue
+            }
+        }
+        .onChange(of: autoSaveSnapshot) { _, snapshot in
+            scheduleAutoSave(for: snapshot)
+        }
     }
 
     // MARK: Query section
@@ -297,7 +374,16 @@ struct MonitorEditorView: View {
         }
 
         Section("SQL") {
-            SQLEditorView(text: $querySQL, tables: [])
+            SQLEditorView(
+                draft: queryDraft,
+                tables: [],
+                favorites: [],
+                favoriteContext: QueryFavoriteContext(
+                    connectionName: queryConnection?.name ?? "",
+                    databaseName: queryDatabase,
+                    tableName: nil
+                )
+            )
                 .frame(minHeight: 120)
         }
     }
@@ -352,32 +438,58 @@ struct MonitorEditorView: View {
         .padding(.vertical, 10)
     }
 
-    private var actionBar: some View {
-        HStack(spacing: 10) {
-            if let monitor {
-                Button("Delete", systemImage: "trash", role: .destructive) { onDelete(monitor) }
-                Button("History", systemImage: "chart.xyaxis.line") { showsHistory = true }
-                    .disabled((monitor.activations ?? []).isEmpty)
-            }
-            Spacer()
-            if let onCancel {
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup {
+            if monitor == nil, let onCancel {
                 Button("Cancel", role: .cancel) { onCancel() }
                     .keyboardShortcut(.cancelAction)
             }
-            Button(monitor == nil ? "Create Monitor" : "Save") { save() }
-                .buttonStyle(.glassProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canSave)
+            if let monitor {
+                Button("History", systemImage: "chart.xyaxis.line") { showsHistory = true }
+                    .disabled((monitor.activations ?? []).isEmpty)
+                Button("Delete", systemImage: "trash", role: .destructive) { onDelete(monitor) }
+            }
         }
-        .buttonStyle(.glass)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
     }
 
     private var canSave: Bool {
         !title.isEmpty
             && queryConnection != nil
             && !querySQL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var autoSaveSnapshot: AutoSaveSnapshot {
+        AutoSaveSnapshot(
+            title: title,
+            ruleType: ruleKind.rawValue,
+            threshold: threshold,
+            intervalMinutes: intervalMinutes,
+            schedulePreset: schedulePreset.rawValue,
+            scheduleKind: scheduleKind.rawValue,
+            scheduledMinuteOfDay: scheduledMinuteOfDay,
+            comparisonColumn: comparisonColumn,
+            cooldownMinutes: cooldownMinutes,
+            quietStart: quietStart,
+            quietEnd: quietEnd,
+            runsOnThisDevice: runsOnThisDevice,
+            messageTemplate: messageTemplate,
+            queryUsesExisting: selectedQueryID != nil,
+            selectedQueryID: selectedQueryID,
+            queryTitle: queryTitle,
+            queryConnectionID: queryConnection?.id,
+            queryDatabase: queryDatabase,
+            querySQL: querySQL,
+            fieldDrafts: fieldDrafts.map {
+                AutoSaveSnapshot.FieldSnapshot(
+                    id: $0.id,
+                    token: $0.token,
+                    queryID: $0.query?.id,
+                    column: $0.column,
+                    formatRaw: $0.format.rawValue
+                )
+            }
+        )
     }
 
     private var activationSymbol: String {
@@ -460,39 +572,41 @@ struct MonitorEditorView: View {
             queryConnection = connections.first
         }
 
-        guard let monitor else { return }
-        title = monitor.title
-        ruleKind = MonitorRule.Kind(rawValue: monitor.ruleType) ?? .changed
-        threshold = monitor.threshold
-        intervalMinutes = monitor.intervalMinutes
-        scheduleKind = monitor.scheduleKind
-        schedulePreset = SchedulePreset(
-            intervalMinutes: monitor.intervalMinutes,
-            scheduleKind: monitor.scheduleKind
-        )
-        configureCustomInterval(from: monitor.intervalMinutes)
-        scheduledTime = Self.dateForTime(
-            hour: monitor.scheduledMinuteOfDay / 60,
-            minute: monitor.scheduledMinuteOfDay % 60
-        )
-        comparisonColumn = monitor.comparisonColumn ?? ""
-        cooldownMinutes = monitor.cooldownMinutes
-        quietStart = monitor.quietHoursStart
-        quietEnd = monitor.quietHoursEnd
-        showsNotificationLimits = monitor.cooldownMinutes > 0
-            || monitor.quietHoursStart != monitor.quietHoursEnd
-        runsOnThisDevice = monitor.activation(for: device.id)?.isEnabled ?? false
-        messageTemplate = monitor.messageTemplate
-        fieldDrafts = (monitor.fields ?? [])
-            .sorted { $0.sortOrder < $1.sortOrder }
-            .map { field in
-                NotificationTemplateEditor.FieldDraft(
-                    token: field.token,
-                    query: field.query,
-                    column: field.column ?? "",
-                    format: field.format
-                )
-            }
+        if let monitor {
+            title = monitor.title
+            ruleKind = MonitorRule.Kind(rawValue: monitor.ruleType) ?? .changed
+            threshold = monitor.threshold
+            intervalMinutes = monitor.intervalMinutes
+            scheduleKind = monitor.scheduleKind
+            schedulePreset = SchedulePreset(
+                intervalMinutes: monitor.intervalMinutes,
+                scheduleKind: monitor.scheduleKind
+            )
+            configureCustomInterval(from: monitor.intervalMinutes)
+            scheduledTime = Self.dateForTime(
+                hour: monitor.scheduledMinuteOfDay / 60,
+                minute: monitor.scheduledMinuteOfDay % 60
+            )
+            comparisonColumn = monitor.comparisonColumn ?? ""
+            cooldownMinutes = monitor.cooldownMinutes
+            quietStart = monitor.quietHoursStart
+            quietEnd = monitor.quietHoursEnd
+            showsNotificationLimits = monitor.cooldownMinutes > 0
+                || monitor.quietHoursStart != monitor.quietHoursEnd
+            runsOnThisDevice = monitor.activation(for: device.id)?.isEnabled ?? false
+            messageTemplate = monitor.messageTemplate
+            fieldDrafts = (monitor.fields ?? [])
+                .sorted { $0.sortOrder < $1.sortOrder }
+                .map { field in
+                    NotificationTemplateEditor.FieldDraft(
+                        token: field.token,
+                        query: field.query,
+                        column: field.column ?? "",
+                        format: field.format
+                    )
+                }
+        }
+        lastSavedSnapshot = autoSaveSnapshot
     }
 
     /// Load the selected query's fields into the editor, or clear them for a new one. The
@@ -520,8 +634,10 @@ struct MonitorEditorView: View {
         isLoadingDatabases = true
         defer { isLoadingDatabases = false }
 
-        let secret = try? KeychainSecretStore().secret(for: connection.id)
-        guard let session = try? await driver.connect(config: connection.config, secret: secret) else {
+        let config = connection.config
+        let storedSecret = try? KeychainSecretStore().secret(for: connection.id)
+        let secret = try? ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
+        guard let session = try? await driver.connect(config: config, secret: secret) else {
             databaseOptions = []
             return
         }
@@ -529,21 +645,27 @@ struct MonitorEditorView: View {
         await session.close()
     }
 
-    private func save() {
+    private func save(notifySelection: Bool) {
         // The query the monitor will watch — reused or freshly created — updated to match the
         // editor so a database fix here also repairs the query for the console and any sibling.
         let query: SavedQuery
+        let createdNewQuery: Bool
         switch querySource {
         case .existing(let existing):
             query = existing
+            createdNewQuery = false
         case .new:
             query = SavedQuery(title: "", sql: "")
             modelContext.insert(query)
+            createdNewQuery = true
         }
         query.title = queryTitle.isEmpty ? title : queryTitle
         query.sql = querySQL
         query.database = queryDatabase
         query.connection = queryConnection
+        if createdNewQuery {
+            querySource = .existing(query)
+        }
 
         let target = monitor ?? Monitor(title: title, query: query)
         target.title = title
@@ -591,7 +713,25 @@ struct MonitorEditorView: View {
         }
 
         try? modelContext.save()
-        onSaved(target)
+        lastSavedSnapshot = autoSaveSnapshot
+        if notifySelection {
+            onSaved(target)
+        }
+    }
+
+    private func scheduleAutoSave(for snapshot: AutoSaveSnapshot) {
+        autoSaveTask?.cancel()
+        guard snapshot != lastSavedSnapshot else { return }
+
+        autoSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                let current = autoSaveSnapshot
+                guard current == snapshot, current != lastSavedSnapshot, canSave else { return }
+                save(notifySelection: monitor == nil)
+            }
+        }
     }
 
     private func apply(_ preset: SchedulePreset) {
@@ -623,5 +763,15 @@ struct MonitorEditorView: View {
             second: 0,
             of: .now
         ) ?? .now
+    }
+
+    private var selectedQueryID: UUID? {
+        guard case .existing(let query) = querySource else { return nil }
+        return query.id
+    }
+
+    private var scheduledMinuteOfDay: Int {
+        let components = Calendar.current.dateComponents([.hour, .minute], from: scheduledTime)
+        return (components.hour ?? 9) * 60 + (components.minute ?? 0)
     }
 }

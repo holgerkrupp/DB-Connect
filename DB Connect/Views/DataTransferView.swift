@@ -26,6 +26,7 @@ struct DataTransferView: View {
     @State private var operation: TransferOperation
     @State private var format: TransferFormat
     @State private var sqlTables: [SQLExportTable]
+    @State private var exportSearchText = ""
     @State private var csvTableID: String
     @State private var exportsMultipleCSVs = false
     @State private var csvTableIDs: Set<String>
@@ -42,8 +43,11 @@ struct DataTransferView: View {
 
     @State private var importFilename: String?
     @State private var importText: String?
+    @State private var importByteCount = 0
+    @State private var importLineCount = 0
     @State private var sqlPreviewCount = 0
-    @State private var sqlFirstStatement = ""
+    @State private var sqlPreviewStatements: [ParsedSQLStatement] = []
+    @State private var sqlPreviewWasTruncated = false
     @State private var parsedCSV: ParsedCSV?
     @State private var sqlImport = SQLImportOptions()
     @State private var csvImport = CSVImportOptions()
@@ -127,10 +131,13 @@ struct DataTransferView: View {
                 if !importFailures.isEmpty {
                     Section("Import errors (\(importFailures.count))") {
                         ForEach(importFailures) { failure in
-                            DisclosureGroup("Statement \(failure.id)") {
+                            DisclosureGroup("Statement \(failure.id) · \(failure.lineSummary)") {
                                 Text(failure.message)
                                     .foregroundStyle(.red)
                                     .textSelection(.enabled)
+                                Text(failure.lineSummary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                                 Text(failure.statement)
                                     .font(.caption.monospaced())
                                     .textSelection(.enabled)
@@ -229,7 +236,12 @@ struct DataTransferView: View {
 
     private var sqlExportForm: some View {
         Group {
-            Section {
+            Section("Objects") {
+                if tables.count > 6 {
+                    TextField("Filter tables and views", text: $exportSearchText)
+                        .autocorrectionDisabled()
+                }
+
                 HStack {
                     Text("Database objects")
                     Spacer()
@@ -238,32 +250,44 @@ struct DataTransferView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                ForEach($sqlTables) { $selection in
+                if filteredSQLTableIndices.isEmpty {
+                    ContentUnavailableView(
+                        "No Matching Objects",
+                        systemImage: "magnifyingglass",
+                        description: Text("Try a different table, view, or schema name.")
+                    )
+                }
+
+                ForEach(filteredSQLTableIndices, id: \.self) { index in
+                    let selection = $sqlTables[index]
                     HStack {
                         Label(
-                            selection.table.qualifiedName,
-                            systemImage: selection.table.kind == .view ? "eye" : "tablecells"
+                            selection.wrappedValue.table.qualifiedName,
+                            systemImage: selection.wrappedValue.table.kind == .view ? "eye" : "tablecells"
                         )
                         .lineLimit(1)
                         Spacer()
-                        Toggle("Structure", isOn: $selection.includeStructure).labelsHidden()
-                        Toggle("Content", isOn: $selection.includeContent)
+                        Toggle("Structure", isOn: selection.includeStructure).labelsHidden()
+                        Toggle("Content", isOn: selection.includeContent)
                             .labelsHidden()
-                            .disabled(selection.table.kind == .view)
-                        Toggle("Drop", isOn: $selection.includeDropStatement).labelsHidden()
+                            .disabled(selection.wrappedValue.table.kind == .view)
+                        Toggle("Drop", isOn: selection.includeDropStatement).labelsHidden()
                     }
                 }
 
                 HStack {
-                    Button("All") {
-                        for index in sqlTables.indices {
+                    Button(allSQLTablesSelected ? "Deselect All" : "Select All") {
+                        setAllSQLTablesSelected(!allSQLTablesSelected)
+                    }
+                    Button("Select Visible") {
+                        for index in filteredSQLTableIndices {
                             sqlTables[index].includeStructure = true
                             sqlTables[index].includeContent = sqlTables[index].table.kind == .table
                             sqlTables[index].includeDropStatement = true
                         }
                     }
-                    Button("None") {
-                        for index in sqlTables.indices {
+                    Button("Clear Visible") {
+                        for index in filteredSQLTableIndices {
                             sqlTables[index].includeStructure = false
                             sqlTables[index].includeContent = false
                             sqlTables[index].includeDropStatement = false
@@ -302,14 +326,30 @@ struct DataTransferView: View {
             Section("Data") {
                 Toggle("Export multiple tables", isOn: $exportsMultipleCSVs)
                 if exportsMultipleCSVs {
-                    ForEach(tables.filter { $0.kind == .table }) { table in
+                    if tables.filter({ $0.kind == .table }).count > 6 {
+                        TextField("Filter tables", text: $exportSearchText)
+                            .autocorrectionDisabled()
+                    }
+                    if filteredCSVTables.isEmpty {
+                        ContentUnavailableView(
+                            "No Matching Tables",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a different table or schema name.")
+                        )
+                    }
+                    ForEach(filteredCSVTables) { table in
                         Toggle(table.qualifiedName, isOn: csvSelectionBinding(for: table.id))
                     }
                     HStack {
-                        Button("All") {
-                            csvTableIDs = Set(tables.filter { $0.kind == .table }.map(\.id))
+                        Button(allCSVTableIDsSelected ? "Deselect All" : "Select All") {
+                            csvTableIDs = allCSVTableIDsSelected ? [] : Set(tables.filter { $0.kind == .table }.map(\.id))
                         }
-                        Button("None") { csvTableIDs.removeAll() }
+                        Button("Select Visible") {
+                            csvTableIDs.formUnion(filteredCSVTables.map(\.id))
+                        }
+                        Button("Clear Visible") {
+                            csvTableIDs.subtract(filteredCSVTables.map(\.id))
+                        }
                         Spacer()
                         Text("\(csvTableIDs.count) selected").foregroundStyle(.secondary)
                     }
@@ -388,15 +428,36 @@ struct DataTransferView: View {
             }
             if importText != nil {
                 Section("Preview") {
+                    Text("\(formattedImportSize) · \(importLineCount.formatted()) line\(importLineCount == 1 ? "" : "s")")
+                        .foregroundStyle(.secondary)
                     if sqlPreviewCount >= 0 {
-                        Text("\(sqlPreviewCount.formatted()) statement\(sqlPreviewCount == 1 ? "" : "s")")
+                        Text("\(sqlPreviewCount.formatted()) executable statement\(sqlPreviewCount == 1 ? "" : "s")")
                     } else {
-                        Text("Large script · statements will be counted during import")
+                        Text("Large script detected. Showing a preview from the opening part of the file.")
                     }
-                    Text(sqlFirstStatement.isEmpty ? "No executable SQL found." : sqlFirstStatement)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .lineLimit(12)
+                    if sqlPreviewWasTruncated {
+                        Text("The preview is intentionally partial so very large dumps stay responsive before import.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if sqlPreviewStatements.isEmpty {
+                        Text("No executable SQL found.")
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    } else {
+                        ForEach(sqlPreviewStatements.prefix(5)) { statement in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Statement \(statement.id) · \(statement.lineSummary)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Text(statement.preview)
+                                    .font(.caption.monospaced())
+                                    .textSelection(.enabled)
+                                    .lineLimit(5)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
                 }
             }
         }
@@ -437,7 +498,11 @@ struct DataTransferView: View {
 
             if let csv = parsedCSV {
                 csvPreview(csv)
-                if !createNewTable { mappingForm(csv) }
+                if createNewTable {
+                    inferredColumnsPreview(csv)
+                } else {
+                    mappingForm(csv)
+                }
             }
         }
     }
@@ -467,6 +532,23 @@ struct DataTransferView: View {
                 }
                 .padding(.vertical, 4)
             }
+        }
+    }
+
+    private func inferredColumnsPreview(_ csv: ParsedCSV) -> some View {
+        Section("New Table Preview") {
+            let columns = DataTransferService.inferredColumns(from: csv, firstRowIsHeader: csvImport.firstRowIsHeader)
+            ForEach(columns) { column in
+                HStack {
+                    Text(column.name)
+                    Spacer()
+                    Text(column.type.displayName)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text("DB Connect infers a compact starter schema from the first 200 rows. Review indexes, defaults, and exact types after the import.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -530,6 +612,31 @@ struct DataTransferView: View {
 
     private var selectedCSVTables: [TableDescriptor] {
         tables.filter { $0.kind == .table && csvTableIDs.contains($0.id) }
+    }
+
+    private var filteredSQLTableIndices: [Int] {
+        sqlTables.indices.filter { matchesExportSearch(sqlTables[$0].table) }
+    }
+
+    private var filteredCSVTables: [TableDescriptor] {
+        tables.filter { $0.kind == .table && matchesExportSearch($0) }
+    }
+
+    private var allSQLTablesSelected: Bool {
+        !sqlTables.isEmpty && sqlTables.allSatisfy(\.isIncluded)
+    }
+
+    private var allCSVTableIDsSelected: Bool {
+        let allTableIDs = Set(tables.filter { $0.kind == .table }.map(\.id))
+        return !allTableIDs.isEmpty && csvTableIDs == allTableIDs
+    }
+
+    private func setAllSQLTablesSelected(_ isSelected: Bool) {
+        for index in sqlTables.indices {
+            sqlTables[index].includeStructure = isSelected
+            sqlTables[index].includeContent = isSelected && sqlTables[index].table.kind == .table
+            sqlTables[index].includeDropStatement = isSelected
+        }
     }
 
     private var primaryActionDisabled: Bool {
@@ -677,6 +784,10 @@ struct DataTransferView: View {
             let text = try DataTransferService.decodedText(from: data)
             importFilename = url.lastPathComponent
             importText = text
+            importByteCount = data.count
+            importLineCount = text.isEmpty ? 0 : text.reduce(into: 1) { count, character in
+                if character == "\n" { count += 1 }
+            }
             let ext = url.pathExtension.lowercased()
             format = ext == "csv" || ext == "tsv" ? .csv : .sql
             if ext == "tsv" {
@@ -700,6 +811,8 @@ struct DataTransferView: View {
         guard let importText else { parsedCSV = nil; return }
         do {
             parsedCSV = try CSVCodec.parse(importText, delimiter: csvExport.delimiter, quote: csvExport.quote)
+            sqlPreviewStatements = []
+            sqlPreviewWasTruncated = false
             rebuildMapping()
         } catch {
             parsedCSV = nil
@@ -711,12 +824,14 @@ struct DataTransferView: View {
         let text = importText ?? ""
         if text.utf8.count > 5_000_000 {
             sqlPreviewCount = -1
-            sqlFirstStatement = String(text.prefix(1_200))
+            sqlPreviewStatements = Array(SQLScriptParser.parse(String(text.prefix(200_000))).prefix(5))
+            sqlPreviewWasTruncated = true
             return
         }
-        let statements = SQLScriptParser.statements(in: text)
+        let statements = SQLScriptParser.parse(text)
         sqlPreviewCount = statements.count
-        sqlFirstStatement = statements.first.map { String($0.prefix(1_200)) } ?? ""
+        sqlPreviewStatements = Array(statements.prefix(5))
+        sqlPreviewWasTruncated = false
     }
 
     private func rebuildMapping() {
@@ -755,6 +870,18 @@ struct DataTransferView: View {
         statusMessage = nil
         errorMessage = nil
         importFailures = []
+    }
+
+    private func matchesExportSearch(_ table: TableDescriptor) -> Bool {
+        let query = exportSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return table.qualifiedName.localizedCaseInsensitiveContains(query)
+            || table.name.localizedCaseInsensitiveContains(query)
+            || (table.schema?.localizedCaseInsensitiveContains(query) ?? false)
+    }
+
+    private var formattedImportSize: String {
+        ByteCountFormatter.string(fromByteCount: Int64(importByteCount), countStyle: .file)
     }
 
     private var dateStamp: String {

@@ -64,6 +64,11 @@ actor SupabaseSession: DatabaseSession {
         session.invalidateAndCancel()
     }
 
+    func ping() async throws {
+        let (data, response) = try await send(request(for: baseURL))
+        try Self.validate(response, data: data)
+    }
+
     // MARK: - Introspection
 
     func tables() async throws -> [TableDescriptor] {
