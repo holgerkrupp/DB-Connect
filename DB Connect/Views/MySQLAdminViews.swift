@@ -85,10 +85,10 @@ struct MySQLTableInspectorView: View {
             .navigationTitle(target.table)
             .navigationSubtitle(target.database)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItem(placement: .secondaryAction) {
                     Button("Reload", systemImage: "arrow.clockwise") {
                         Task { await load() }
                     }
@@ -229,9 +229,9 @@ struct MySQLServerAdminView: View {
                     }
                 }
             }
-            .navigationTitle("MySQL Administration")
+            .navigationTitle("MySQL Admin")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
                 ToolbarItem(placement: .principal) {
@@ -241,13 +241,11 @@ struct MySQLServerAdminView: View {
                     .pickerStyle(.segmented)
                     .frame(minWidth: 220)
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .secondaryAction) {
                     Button("Reload", systemImage: "arrow.clockwise") {
                         Task { await load() }
                     }
-                }
-                if capability.canFlushPrivileges {
-                    ToolbarItem(placement: .secondaryAction) {
+                    if capability.canFlushPrivileges {
                         Button("Flush Privileges…", systemImage: "lock.rotation") {
                             showsFlushConfirm = true
                         }

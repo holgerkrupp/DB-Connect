@@ -1,7 +1,10 @@
 import AppIntents
+import CoreSpotlight
 import Foundation
+import SwiftData
+import Synchronization
 
-struct SavedQueryEntity: AppEntity {
+struct SavedQueryEntity: AppEntity, IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Saved Query")
     static let defaultQuery = SavedQueryEntityQuery()
 
@@ -16,6 +19,13 @@ struct SavedQueryEntity: AppEntity {
             subtitle: database.isEmpty ? "\(connectionName)" : "\(connectionName) · \(database)",
             image: .init(systemName: "text.page")
         )
+    }
+
+    /// Spotlight gets the same fields as the entity picker — never SQL text or results.
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = defaultAttributeSet
+        attributes.keywords = [connectionName, database].filter { !$0.isEmpty }
+        return attributes
     }
 
     init(_ query: WidgetSnapshot.Query) {
@@ -47,7 +57,7 @@ struct SavedQueryEntityQuery: EntityStringQuery {
     }
 }
 
-struct MonitorEntity: AppEntity {
+struct MonitorEntity: AppEntity, IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Monitor")
     static let defaultQuery = MonitorEntityQuery()
 
@@ -63,6 +73,12 @@ struct MonitorEntity: AppEntity {
             subtitle: "\(queryTitle) · \(connectionName)",
             image: .init(systemName: isEnabled ? "bell.badge" : "bell.slash")
         )
+    }
+
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = defaultAttributeSet
+        attributes.keywords = [queryTitle, connectionName]
+        return attributes
     }
 
     init(_ monitor: WidgetSnapshot.MonitorStatus) {
@@ -93,6 +109,37 @@ struct MonitorEntityQuery: EntityStringQuery {
 
     func suggestedEntities() async throws -> [MonitorEntity] {
         WidgetSnapshot.load().monitors.map(MonitorEntity.init)
+    }
+}
+
+// Both ids are the SwiftData model's UUID, which CloudKit syncs unchanged. The same query or
+// monitor therefore has the same id on every device, so Siri can carry a conversation across them.
+@available(iOS 27.0, macOS 27.0, *)
+extension SavedQueryEntity: SyncableEntity {}
+
+@available(iOS 27.0, macOS 27.0, *)
+extension MonitorEntity: SyncableEntity {}
+
+/// Keeps Spotlight's semantic index — which Siri also searches — in step with the widget snapshot.
+@MainActor
+enum SpotlightEntityIndexer {
+    private static var pending: Task<Void, Never>?
+
+    static func reindex(queries: [WidgetSnapshot.Query], monitors: [WidgetSnapshot.MonitorStatus]) {
+        let previous = pending
+        let queryEntities = queries.map(SavedQueryEntity.init)
+        let monitorEntities = monitors.map(MonitorEntity.init)
+        pending = Task {
+            // Chained so two quick passes cannot interleave one's delete with the other's insert.
+            await previous?.value
+            let index = CSSearchableIndex.default()
+            // Replace wholesale: the snapshot is small, and this drops entries for anything
+            // deleted since the last pass without tracking what was indexed before.
+            try? await index.deleteAppEntities(ofType: SavedQueryEntity.self)
+            try? await index.deleteAppEntities(ofType: MonitorEntity.self)
+            try? await index.indexAppEntities(queryEntities)
+            try? await index.indexAppEntities(monitorEntities)
+        }
     }
 }
 
@@ -140,12 +187,84 @@ struct RunMonitorsIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let container = DB_ConnectApp.appModelContainer
-        let runner = MonitorRunner(modelContainer: container)
-        let fired = await runner.runDue(force: true)
+        let summary: MonitorRunSummary
+        if #available(iOS 27.0, macOS 27.0, *) {
+            summary = try await runWithExtendedTime(container)
+        } else {
+            summary = await MonitorRunCoordinator.shared.run(container: container, force: true)
+        }
         WidgetSnapshotPublisher.publish(container: container)
-        return .result(dialog: fired == 0
-            ? "DB Connect finished checking your enabled monitors."
-            : "DB Connect finished checking your monitors and sent \(fired) alert\(fired == 1 ? "" : "s").")
+        return .result(dialog: "\(summary.message)")
+    }
+}
+
+/// Each monitor is a round trip to its database, so checking several can exceed the 30 seconds an
+/// intent normally gets in the background.
+@available(iOS 27.0, macOS 27.0, *)
+extension RunMonitorsIntent: LongRunningIntent, CancellableIntent {
+    fileprivate func runWithExtendedTime(_ container: ModelContainer) async throws -> MonitorRunSummary {
+        let stop = StopFlag()
+        let progress = progress
+        return try await performBackgroundTask {
+            await MonitorRunCoordinator.shared.run(
+                container: container,
+                force: true,
+                shouldStop: { stop.isSet }
+            ) { completed, total in
+                progress.totalUnitCount = Int64(total)
+                progress.completedUnitCount = Int64(completed)
+            }
+        } onCancel: { _ in
+            // Stop before the next monitor; the ones already checked keep their results.
+            stop.set()
+        }
+    }
+}
+
+/// Carries the intent's cancellation callback, which may arrive on any thread, to the runner's
+/// check between monitors.
+private nonisolated final class StopFlag: Sendable {
+    private let state = Mutex(false)
+    var isSet: Bool { state.withLock { $0 } }
+    func set() { state.withLock { $0 = true } }
+}
+
+/// Turns monitors on or off for this device only — the same switch as the editor's "Run on this
+/// device" toggle.
+@available(iOS 27.0, macOS 27.0, *)
+struct SetMonitorsEnabledIntent: AppIntent {
+    static let title: LocalizedStringResource = "Turn Monitors On or Off"
+    static let description = IntentDescription("Turns DB Connect monitors on or off on this device. Other devices keep their own setting.")
+    static let supportedModes: IntentModes = [.background]
+    // Writes to the CloudKit-backed store, which only the app process opens.
+    static var allowedExecutionTargets: ExecutionTargets { .main }
+
+    // Identifiers are all this needs: it edits the SwiftData models directly, so resolving each
+    // monitor into an entity first would be wasted work.
+    @Parameter(title: "Monitors") var monitors: EntityCollection<MonitorEntity>
+    @Parameter(title: "State", displayName: Bool.IntentDisplayName(true: "On", false: "Off"))
+    var isEnabled: Bool
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Turn \(\.$monitors) \(\.$isEnabled) on this device")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let container = DB_ConnectApp.appModelContainer
+        let context = ModelContext(container)
+        let ids = monitors.identifiers
+        let matches = try context.fetch(FetchDescriptor<Monitor>(predicate: #Predicate { ids.contains($0.id) }))
+
+        let device = DeviceIdentity.current
+        for monitor in matches {
+            monitor.setEnabled(isEnabled, on: device, in: context)
+        }
+        try context.save()
+        WidgetSnapshotPublisher.publish(container: container)
+
+        let count = matches.count
+        return .result(dialog: "Turned \(isEnabled ? "on" : "off") \(count) monitor\(count == 1 ? "" : "s") on this device.")
     }
 }
 

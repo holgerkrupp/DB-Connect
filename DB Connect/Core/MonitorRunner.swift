@@ -1,6 +1,38 @@
 import Foundation
 import SwiftData
 
+nonisolated struct MonitorRunSummary: Sendable, Equatable {
+    var total = 0
+    var attempted = 0
+    var succeeded = 0
+    var fired = 0
+    var failureMessages: [String] = []
+    var wasCancelled = false
+
+    var failed: Int { failureMessages.count }
+
+    var message: String {
+        if wasCancelled {
+            return "Stopped after checking \(attempted) of \(total) monitors."
+        }
+        if failed > 0 {
+            if attempted == 0, let failure = failureMessages.first { return failure }
+            return "Checked \(attempted) monitor\(attempted == 1 ? "" : "s"); \(failed) failed."
+        }
+        if total == 0 { return "No enabled monitors to check on this device." }
+        if fired > 0 {
+            return "Checked \(succeeded) monitor\(succeeded == 1 ? "" : "s") and sent \(fired) alert\(fired == 1 ? "" : "s")."
+        }
+        return "Checked \(succeeded) monitor\(succeeded == 1 ? "" : "s"). Everything is up to date."
+    }
+}
+
+private nonisolated enum MonitorRunOutcome: Sendable {
+    case completed
+    case fired
+    case failed(String)
+}
+
 /// Executes due monitors for this device.
 ///
 /// A `ModelActor` so it can own its own `ModelContext` off the main actor — background runs must
@@ -9,39 +41,104 @@ import SwiftData
 @ModelActor
 actor MonitorRunner {
 
-    /// Run every activation that is due on this device. Returns how many fired a notification.
+    /// Check one enabled monitor on this device, regardless of when it is next due.
+    func run(monitorID: UUID) async -> MonitorRunSummary {
+        let deviceID = DeviceIdentity.identifier
+        let descriptor = FetchDescriptor<MonitorActivation>(
+            predicate: #Predicate { $0.deviceID == deviceID && $0.isEnabled }
+        )
+
+        do {
+            let activations = try modelContext.fetch(descriptor)
+            guard let activation = activations.first(where: { $0.monitor?.id == monitorID }) else {
+                return MonitorRunSummary(failureMessages: ["This monitor is not enabled on this device."])
+            }
+
+            var summary = MonitorRunSummary(total: 1, attempted: 1)
+            switch await run(activation) {
+            case .completed:
+                summary.succeeded = 1
+            case .fired:
+                summary.succeeded = 1
+                summary.fired = 1
+            case .failed(let message):
+                summary.failureMessages = [message]
+            }
+            try? modelContext.save()
+            return summary
+        } catch {
+            return MonitorRunSummary(failureMessages: [error.localizedDescription])
+        }
+    }
+
+    /// Run every activation that is due on this device and report what actually happened.
+    ///
+    /// `shouldStop` and `onProgress` exist for the Run Monitors intent: the system only keeps
+    /// extending a long-running intent while its progress moves, and a cancelled run should keep
+    /// the results it already has rather than discard them.
     @discardableResult
-    func runDue(force: Bool = false) async -> Int {
+    func runDue(
+        force: Bool = false,
+        shouldStop: @Sendable () -> Bool = { false },
+        onProgress: (@Sendable (_ completed: Int, _ total: Int) async -> Void)? = nil
+    ) async -> MonitorRunSummary {
         let deviceID = DeviceIdentity.identifier
 
         let descriptor = FetchDescriptor<MonitorActivation>(
             predicate: #Predicate { $0.deviceID == deviceID && $0.isEnabled }
         )
-        guard let activations = try? modelContext.fetch(descriptor) else { return 0 }
+        let activations: [MonitorActivation]
+        do {
+            activations = try modelContext.fetch(descriptor)
+        } catch {
+            return MonitorRunSummary(failureMessages: [error.localizedDescription])
+        }
 
-        var fired = 0
-        for activation in activations where force || activation.isDue {
-            if await run(activation) { fired += 1 }
+        let due = activations.filter { force || $0.isDue }
+        await onProgress?(0, due.count)
+
+        var summary = MonitorRunSummary(total: due.count)
+        for (index, activation) in due.enumerated() {
+            if Task.isCancelled || shouldStop() {
+                summary.wasCancelled = true
+                break
+            }
+            summary.attempted += 1
+            switch await run(activation) {
+            case .completed:
+                summary.succeeded += 1
+            case .fired:
+                summary.succeeded += 1
+                summary.fired += 1
+            case .failed(let message):
+                summary.failureMessages.append(message)
+            }
+            // Persist after each remote round trip. A cancelled multi-monitor run keeps every
+            // result it already completed instead of relying on reaching the end of the loop.
+            try? modelContext.save()
+            await onProgress?(index + 1, due.count)
         }
         try? modelContext.save()
-        return fired
+        return summary
     }
 
-    /// Run one activation. Returns true if it notified.
+    /// Run one activation. Returns whether it completed, notified, or failed.
     @discardableResult
-    func run(_ activation: MonitorActivation) async -> Bool {
+    private func run(_ activation: MonitorActivation) async -> MonitorRunOutcome {
+        let attemptedAt = Date.now
+        activation.recordAttempt(at: attemptedAt)
+
         guard let monitor = activation.monitor,
               let query = monitor.query,
               let connection = query.connection else {
-            activation.lastErrorMessage = "This monitor is missing its query or connection."
-            return false
+            let message = "This monitor is missing its query or connection."
+            activation.recordFailure(message, at: attemptedAt)
+            return .failed(message)
         }
-
-        activation.lastRunAt = .now
 
         do {
             let observation = try await observe(query: query, connection: connection, monitor: monitor)
-            activation.lastErrorMessage = nil
+            activation.recordSuccess(at: .now)
 
             let previous = activation.lastValue
             let didFire = monitor.rule.fires(previous: previous, observation: observation)
@@ -53,17 +150,12 @@ actor MonitorRunner {
                 quietHoursEnd: monitor.quietHoursEnd
             )
 
-            let sample = MonitorSample(value: observation.value ?? 0, didFire: didFire && allowed)
+            let sample = MonitorSample(value: observation.value ?? 0, didFire: false)
             sample.activation = activation
             modelContext.insert(sample)
             pruneSamples(for: activation)
 
-            // The baseline advances whether or not the notification was suppressed — otherwise a
-            // quiet-hours window would make the next delta measure against a stale value.
-            activation.lastValue = observation.value
-
             if didFire && allowed {
-                activation.lastNotifiedAt = .now
                 // Only resolve the extra template queries once we know we are going to notify —
                 // no point running them on every quiet check.
                 let body = await composeMessage(
@@ -71,24 +163,42 @@ actor MonitorRunner {
                     previous: previous,
                     observation: observation
                 )
-                await NotificationService.send(
-                    title: monitor.title.isEmpty ? "Monitor" : monitor.title,
-                    body: body,
-                    monitorID: monitor.id
-                )
-                return true
+                do {
+                    try await NotificationService.send(
+                        title: monitor.title.isEmpty ? "Monitor" : monitor.title,
+                        body: body,
+                        monitorID: monitor.id
+                    )
+                    sample.didFire = true
+                    activation.lastNotifiedAt = .now
+                    activation.lastValue = observation.value
+                    return .fired
+                } catch {
+                    // Keep the old comparison baseline so an edge-triggered condition can retry
+                    // after notification permission or delivery is repaired.
+                    let message = "The query succeeded, but the alert could not be delivered: \(error.localizedDescription)"
+                    activation.recordFailure(message, at: attemptedAt)
+                    return .failed(message)
+                }
             }
-            return false
+
+            // A suppressed alert still advances the baseline; quiet hours and cooldowns should
+            // not make the next comparison use stale data.
+            activation.lastValue = observation.value
+            return .completed
 
         } catch {
             // A credential that has not synced to this device yet is the common case, and it
             // deserves a clearer message than the driver's own.
             if case DatabaseError.missingCredentials = error {
-                activation.lastErrorMessage = "Waiting for this connection's credentials to sync to this device."
+                let message = "Waiting for this connection's credentials to sync to this device."
+                activation.recordFailure(message, at: attemptedAt)
+                return .failed(message)
             } else {
-                activation.lastErrorMessage = error.localizedDescription
+                let message = error.localizedDescription
+                activation.recordFailure(message, at: attemptedAt)
+                return .failed(message)
             }
-            return false
         }
     }
 
@@ -184,10 +294,17 @@ actor MonitorRunner {
             throw error
         }
         await session.close()
-        return MonitorRule.Observation(
-            value: result.scalar(column: monitor.comparisonColumn),
-            rowCount: result.rows.count
-        )
+        let value = result.scalar(column: monitor.comparisonColumn)
+        if monitor.rule.kind.readsValue, value == nil {
+            let message: String
+            if let column = monitor.comparisonColumn, !column.isEmpty {
+                message = "The result column “\(column)” is missing or is not numeric."
+            } else {
+                message = "The first value returned by the query is missing or is not numeric."
+            }
+            throw DatabaseError.queryFailed(sql: query.sql, message: message)
+        }
+        return MonitorRule.Observation(value: value, rowCount: result.rows.count)
     }
 
     /// The connection config to dial for a saved query, with its recorded database selected.

@@ -49,3 +49,39 @@ enum TestSupport {
         return index
     }
 }
+
+final class MonitorRuleTests: XCTestCase {
+    func testFirstDeltaRunEstablishesBaselineWithoutAlerting() {
+        let rule = MonitorRule(kind: .changedByAtLeast, threshold: 2)
+
+        XCTAssertFalse(rule.fires(
+            previous: nil,
+            observation: .init(value: 10, rowCount: 1)
+        ))
+        XCTAssertFalse(rule.fires(
+            previous: 10,
+            observation: .init(value: 11.5, rowCount: 1)
+        ))
+        XCTAssertTrue(rule.fires(
+            previous: 10,
+            observation: .init(value: 12, rowCount: 1)
+        ))
+    }
+
+    func testThresholdRulesOnlyFireOnCrossing() {
+        let rule = MonitorRule(kind: .above, threshold: 100)
+
+        XCTAssertTrue(rule.fires(previous: 99, observation: .init(value: 101, rowCount: 1)))
+        XCTAssertFalse(rule.fires(previous: 101, observation: .init(value: 102, rowCount: 1)))
+    }
+
+    func testQuietHoursCanWrapAcrossMidnight() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let late = calendar.date(from: DateComponents(year: 2026, month: 9, day: 11, hour: 23))!
+        let morning = calendar.date(from: DateComponents(year: 2026, month: 9, day: 12, hour: 8))!
+
+        XCTAssertTrue(NotificationGate.isQuiet(now: late, start: 22, end: 7, calendar: calendar))
+        XCTAssertFalse(NotificationGate.isQuiet(now: morning, start: 22, end: 7, calendar: calendar))
+    }
+}

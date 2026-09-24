@@ -50,10 +50,22 @@ final class MonitorScheduler {
         timer = nil
     }
 
-    func runDue(force: Bool = false) async {
-        let runner = MonitorRunner(modelContainer: container)
-        await runner.runDue(force: force)
+    @discardableResult
+    func runDue(force: Bool = false) async -> MonitorRunSummary {
+        let summary = await MonitorRunCoordinator.shared.run(container: container, force: force)
         WidgetSnapshotPublisher.publish(container: container)
+        return summary
+    }
+
+    @discardableResult
+    func run(monitorID: UUID) async -> MonitorRunSummary {
+        let summary = await MonitorRunCoordinator.shared.run(
+            container: container,
+            force: true,
+            monitorID: monitorID
+        )
+        WidgetSnapshotPublisher.publish(container: container)
+        return summary
     }
 
     // MARK: - iOS background refresh

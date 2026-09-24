@@ -12,6 +12,7 @@ nonisolated enum AppSettings {
         static let syntaxHighlighting = "editor.syntaxHighlighting"
         static let recordHistory = "console.recordHistory"
         static let keepConnectionsAlive = "connection.keepAlive"
+        static let showMonitorMenuBar = "monitor.showMenuBar"
     }
 
     /// How far the editor may go in fixing identifiers on its own.

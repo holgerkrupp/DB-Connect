@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import ServiceManagement
+#endif
 
 /// App preferences. Presented as a Settings window on macOS and a sheet on iOS.
 ///
@@ -28,6 +31,7 @@ struct SettingsView: View {
                 case .names: NameSettings()
                 case .history: HistorySettings()
                 case .connection: ConnectionSettings()
+                case .monitoring: MonitoringSettings()
                 }
             }
             .formStyle(.grouped)
@@ -42,6 +46,7 @@ struct SettingsView: View {
             NameSettings()
             HistorySettings()
             ConnectionSettings()
+            MonitoringSettings()
         }
         .formStyle(.grouped)
     }
@@ -55,6 +60,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case names
     case history
     case connection
+    case monitoring
 
     var id: String { rawValue }
 
@@ -64,6 +70,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .names: "Names"
         case .history: "History"
         case .connection: "Connection"
+        case .monitoring: "Monitoring"
         }
     }
 
@@ -73,6 +80,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .names: "text.magnifyingglass"
         case .history: "clock.arrow.circlepath"
         case .connection: "bolt.horizontal.circle"
+        case .monitoring: "bell.badge"
         }
     }
 
@@ -82,6 +90,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .names: .teal
         case .history: .orange
         case .connection: .green
+        case .monitoring: .purple
         }
     }
 }
@@ -169,6 +178,58 @@ private struct ConnectionSettings: View {
             Text("Connection")
         }
     }
+}
+
+private struct MonitoringSettings: View {
+    #if os(macOS)
+    @AppStorage(AppSettings.Key.showMonitorMenuBar) private var showMenuBar = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var launchError: String?
+    #endif
+
+    var body: some View {
+        Section {
+            #if os(macOS)
+            Toggle("Show monitor status in the menu bar", isOn: $showMenuBar)
+            Toggle("Open DB Connect at login", isOn: $launchAtLogin)
+                .onChange(of: launchAtLogin) { _, enabled in
+                    updateLaunchAtLogin(enabled)
+                }
+            if let launchError {
+                Label(launchError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            #else
+            LabeledContent("Home Screen widgets", value: "Available")
+            LabeledContent("Shortcuts and Siri", value: "Available")
+            #endif
+        } header: {
+            Text("Monitoring")
+        } footer: {
+            #if os(macOS)
+            Text("Scheduled checks run while DB Connect is open. Opening it at login keeps monitoring available after you sign in; quitting the app stops checks.")
+            #else
+            Text("Add a DB Connect widget for at-a-glance status, or use Shortcuts to run monitors on demand. Background timing is controlled by iOS.")
+            #endif
+        }
+    }
+
+    #if os(macOS)
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchError = nil
+        } catch {
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+            launchError = error.localizedDescription
+        }
+    }
+    #endif
 }
 
 #if os(iOS)

@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// Table picker + paged result grid for one open session.
 struct TableBrowserView: View {
@@ -42,6 +43,7 @@ struct TableBrowserView: View {
     @State private var columnWidths: [String: CGFloat] = [:]
     @State private var rowHeight: CGFloat = 30
     @State private var wrapCells = false
+    private let inlineEditingTip = InlineCellEditingTip()
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -64,6 +66,11 @@ struct TableBrowserView: View {
                 header
                 if !filters.isEmpty {
                     filterChips
+                }
+                if isEditable, result != nil {
+                    TipView(inlineEditingTip)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
                 }
                 Divider()
                 content
@@ -158,13 +165,19 @@ struct TableBrowserView: View {
             Text(commitError ?? "")
         }
         .toolbar {
-            if horizontalSizeClass != .compact {
-                ToolbarItem(placement: .secondaryAction) { displayMenu }
-                ToolbarItem(placement: .secondaryAction) { filterMenu }
-                if isEditable {
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        rowEditingControls
-                    }
+            ToolbarItemGroup(placement: .secondaryAction) {
+                filterMenu
+                displayMenu
+                if horizontalSizeClass == .compact {
+                    refreshButton
+                }
+            }
+            if isEditable {
+                ToolbarItem(placement: .primaryAction) {
+                    addRowButton
+                }
+                ToolbarItem(placement: .secondaryAction) {
+                    reviewChangesButton
                 }
             }
         }
@@ -258,6 +271,7 @@ struct TableBrowserView: View {
     }
 
     private func stage(_ mutation: RowMutation, against original: [String: SQLValue] = [:]) {
+        inlineEditingTip.invalidate(reason: .actionPerformed)
         switch mutation.kind {
         case .insert:
             pending.append(mutation)
@@ -336,46 +350,12 @@ struct TableBrowserView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                if showsWorkspaceModePicker {
+            if showsWorkspaceModePicker {
+                HStack(spacing: 8) {
                     WorkspaceModePicker(selection: $workspaceMode, compact: true)
-                }
-
-                Spacer(minLength: 0)
-
-                if isEditable {
-                    Button("Add Row", systemImage: "plus") {
-                        editingRow = EditingRow(values: [:], isInsert: true)
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-                }
-
-                refreshButton
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-
-                filterMenu
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-
-                displayMenu
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glass)
-
-                if !pending.isEmpty {
-                    Button {
-                        prepareReview()
-                    } label: {
-                        Label("Review \(pending.count)", systemImage: "checklist")
-                    }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.glassProminent)
-                    .tint(.orange)
-                    .badge(pending.count)
+                    Spacer(minLength: 0)
                 }
             }
-            .controlSize(.regular)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -426,10 +406,6 @@ struct TableBrowserView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .help(reason)
-            } else if isEditable {
-                Text("Tap a cell to edit inline, or double-click a row for the full editor")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -443,6 +419,7 @@ struct TableBrowserView: View {
                 }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.orange)
+                .help("Review and apply unsaved changes")
             }
 
             refreshButton
@@ -540,6 +517,7 @@ struct TableBrowserView: View {
         } label: {
             Label("Display", systemImage: "slider.horizontal.3")
         }
+        .help("Adjust row height, text wrapping, and column widths")
     }
 
     /// Translate the table's comparators into the query's ORDER BY.
@@ -561,16 +539,20 @@ struct TableBrowserView: View {
                 }
             }
         } label: {
-            Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
+            Label("Filter", systemImage: "line.3.horizontal.decrease")
         }
         .disabled(filterColumns.isEmpty)
+        .help("Show only rows that match a column condition")
     }
 
-    @ViewBuilder
-    private var rowEditingControls: some View {
+    private var addRowButton: some View {
         Button("Add Row", systemImage: "plus") {
             editingRow = EditingRow(values: [:], isInsert: true)
         }
+        .help("Add a row to this table")
+    }
+
+    private var reviewChangesButton: some View {
         Button {
             prepareReview()
         } label: {
@@ -578,6 +560,7 @@ struct TableBrowserView: View {
         }
         .disabled(pending.isEmpty)
         .badge(pending.count)
+        .help("Review and apply unsaved changes")
     }
 
     private var filterChips: some View {

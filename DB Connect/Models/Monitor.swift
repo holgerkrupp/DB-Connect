@@ -103,6 +103,24 @@ final class Monitor {
         activations?.first { $0.deviceID == deviceID }
     }
 
+    /// Opts a device in or out. The activation row is created lazily, so a device that never
+    /// opts in does not clutter every monitor with an empty record.
+    func setEnabled(_ isEnabled: Bool, on device: DeviceIdentity.Snapshot, in context: ModelContext) {
+        if let existing = activation(for: device.id) {
+            existing.isEnabled = isEnabled
+            // Re-enabling starts a fresh baseline; a stale one would produce a bogus first delta.
+            if !isEnabled {
+                existing.lastValue = nil
+                existing.consecutiveFailureCount = 0
+                existing.lastErrorMessage = nil
+            }
+        } else if isEnabled {
+            let activation = MonitorActivation(device: device, isEnabled: true)
+            activation.monitor = self
+            context.insert(activation)
+        }
+    }
+
     var enabledDeviceNames: [String] {
         (activations ?? []).filter(\.isEnabled).map(\.deviceName).sorted()
     }
@@ -122,7 +140,11 @@ final class MonitorActivation {
     var deviceKind: String = ""
     var isEnabled: Bool = false
     var lastValue: Double?
+    /// The last successful database check. Failed attempts do not move this date forward.
     var lastRunAt: Date?
+    /// Used for short failure backoff without making a failed hourly monitor wait another hour.
+    var lastAttemptAt: Date?
+    var consecutiveFailureCount: Int = 0
     var lastNotifiedAt: Date?
     /// Set when a run could not happen — most often the credentials have not synced here yet.
     var lastErrorMessage: String?
@@ -151,6 +173,9 @@ final class MonitorActivation {
 
         switch monitor.scheduleKind {
         case .interval:
+            if consecutiveFailureCount > 0, let lastAttemptAt {
+                return now.timeIntervalSince(lastAttemptAt) >= retryInterval
+            }
             guard let lastRunAt else { return true }
             return now.timeIntervalSince(lastRunAt) >= monitor.interval
 
@@ -162,9 +187,39 @@ final class MonitorActivation {
                 second: 0,
                 of: now
             ), now >= scheduledToday else { return false }
-            guard let lastRunAt else { return true }
-            return lastRunAt < scheduledToday
+            if let lastRunAt, lastRunAt >= scheduledToday { return false }
+            if consecutiveFailureCount > 0,
+               let lastAttemptAt,
+               lastAttemptAt >= scheduledToday {
+                return now.timeIntervalSince(lastAttemptAt) >= retryInterval
+            }
+            return true
         }
+    }
+
+    /// Failures retry quickly, but repeated scheduler ticks cannot hammer an unavailable server.
+    /// Exponential backoff tops out at 15 minutes and never exceeds the configured interval.
+    var retryInterval: TimeInterval {
+        let exponent = min(max(consecutiveFailureCount - 1, 0), 4)
+        let retry = TimeInterval(60 * (1 << exponent))
+        return min(retry, monitor?.interval ?? retry)
+    }
+
+    func recordAttempt(at date: Date = .now) {
+        lastAttemptAt = date
+    }
+
+    func recordSuccess(at date: Date = .now) {
+        lastRunAt = date
+        lastAttemptAt = date
+        consecutiveFailureCount = 0
+        lastErrorMessage = nil
+    }
+
+    func recordFailure(_ message: String, at date: Date = .now) {
+        lastAttemptAt = date
+        consecutiveFailureCount += 1
+        lastErrorMessage = message
     }
 
     var symbolName: String {

@@ -8,7 +8,7 @@ import WidgetKit
 nonisolated struct WidgetSnapshot: Codable, Sendable {
     static let appGroup = "group.de.holgerkrupp.DB-Connect"
     static let defaultsKey = "widget.snapshot.v1"
-    static let widgetKinds = ["DBConnect.Monitor", "DBConnect.SavedQueries"]
+    static let widgetKinds = ["DBConnect.Monitor", "DBConnect.MonitorOverview", "DBConnect.SavedQueries"]
 
     struct Query: Codable, Identifiable, Sendable {
         let id: UUID
@@ -97,6 +97,7 @@ enum WidgetSnapshotPublisher {
             WidgetCenter.shared.reloadTimelines(ofKind: kind)
         }
         DBConnectShortcuts.updateAppShortcutParameters()
+        SpotlightEntityIndexer.reindex(queries: queryItems, monitors: monitorItems)
     }
 
     static func publish(container: ModelContainer) {

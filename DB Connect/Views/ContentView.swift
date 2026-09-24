@@ -80,16 +80,17 @@ struct ContentView: View {
                         .tag(SidebarItem.monitors)
                 }
             }
-            .navigationTitle("DB Connect")
+            .navigationTitle("Connections")
             .toolbar {
-                ToolbarItem {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Add Connection", systemImage: "plus") {
                         requestNewConnection()
                     }
+                    .help("Add a database connection")
                 }
                 #if os(iOS)
                 // macOS gets the standard Settings window from the app menu instead.
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .secondaryAction) {
                     Button("Settings", systemImage: "gearshape") {
                         showsSettings = true
                     }

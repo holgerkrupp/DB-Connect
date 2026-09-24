@@ -5,6 +5,7 @@ import WidgetKit
 struct DBConnectWidgetsBundle: WidgetBundle {
     var body: some Widget {
         MonitorWidget()
+        MonitorOverviewWidget()
         SavedQueriesWidget()
     }
 }

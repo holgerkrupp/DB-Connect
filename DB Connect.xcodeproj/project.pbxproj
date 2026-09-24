@@ -25,6 +25,7 @@
 		7E4614A5BFE5855B67020A8F /* PredicateBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4363D64E0E410F02BB8A2E71 /* PredicateBuilder.swift */; };
 		8020EB9EEDE9A0BF70397FE4 /* MutationBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949291B46B48D649AE2EF9BF /* MutationBuilderTests.swift */; };
 		9EF7320BEF6D68E3AC9D6E8A /* SchemaAdmin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */; };
+		A11CE0010000000000000001 /* MonitorRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0010000000000000002 /* MonitorRule.swift */; };
 		A0805BCDD6AC9AB9F755BD4B /* SQLiteDriver+Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27C05E8A43FF8690446B8DC /* SQLiteDriver+Schema.swift */; };
 		A35DC6B1B0D1BF79536100A6 /* SQLIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61EAF479CB1543034FD5A4E1 /* SQLIdentifier.swift */; };
 		B786928654AC56020E101991 /* PredicateBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0036D0C5F50ED9A489A930 /* PredicateBuilderTests.swift */; };
@@ -85,6 +86,7 @@
 		77D7BF7F5EFE1A9C7C976A6E /* SQLValue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SQLValue.swift; path = "DB Connect/Core/SQLValue.swift"; sourceTree = "<group>"; };
 		86D74FC37FBADD3EF509342D /* Statement.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = Statement.swift; path = "DB Connect/Core/Statement.swift"; sourceTree = "<group>"; };
 		949291B46B48D649AE2EF9BF /* MutationBuilderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MutationBuilderTests.swift; sourceTree = "<group>"; };
+		A11CE0010000000000000002 /* MonitorRule.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MonitorRule.swift; path = "DB Connect/Core/MonitorRule.swift"; sourceTree = "<group>"; };
 		B27C05E8A43FF8690446B8DC /* SQLiteDriver+Schema.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "SQLiteDriver+Schema.swift"; path = "DB Connect/Drivers/SQLiteDriver+Schema.swift"; sourceTree = "<group>"; };
 		C829B717882B434135A8684C /* QueryLimits.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = QueryLimits.swift; path = "DB Connect/Core/QueryLimits.swift"; sourceTree = "<group>"; };
 		CB0036D0C5F50ED9A489A930 /* PredicateBuilderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PredicateBuilderTests.swift; sourceTree = "<group>"; };
@@ -169,6 +171,7 @@
 				61EAF479CB1543034FD5A4E1 /* SQLIdentifier.swift */,
 				2A7E7C4801F04E08A4D8B180 /* SQLFavoriteSnippets.swift */,
 				77D7BF7F5EFE1A9C7C976A6E /* SQLValue.swift */,
+				A11CE0010000000000000002 /* MonitorRule.swift */,
 				FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */,
 				86D74FC37FBADD3EF509342D /* Statement.swift */,
 				3B32ED3CAB7734C8ECC820DB /* SQLiteDriver.swift */,
@@ -386,6 +389,7 @@
 				A35DC6B1B0D1BF79536100A6 /* SQLIdentifier.swift in Sources */,
 				2A7E7C4901F04E08A4D8B180 /* SQLFavoriteSnippets.swift in Sources */,
 				0FCDB164AF7904F55103F0DC /* SQLValue.swift in Sources */,
+				A11CE0010000000000000001 /* MonitorRule.swift in Sources */,
 				9EF7320BEF6D68E3AC9D6E8A /* SchemaAdmin.swift in Sources */,
 				15B5AE3BEB9345052F9A5277 /* Statement.swift in Sources */,
 				171847AE3C1A6AB9FDD7E2F2 /* SQLiteDriver.swift in Sources */,

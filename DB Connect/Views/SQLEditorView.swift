@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// SQL text editor with keyword colouring and schema-aware completion.
 ///
@@ -307,6 +308,7 @@ struct SQLEditorView: View {
         isApplyingEdit = false
         completion = nil
         draft.favoriteNotice = "Expanded favorite \(favorite.title)"
+        FavoriteTabTriggerTip().invalidate(reason: .actionPerformed)
         return true
     }
 

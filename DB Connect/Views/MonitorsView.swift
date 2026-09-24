@@ -1,5 +1,7 @@
+import AppIntents
 import SwiftUI
 import SwiftData
+import TipKit
 
 /// Master–detail view of monitors: the list is the sidebar and the selected monitor's editor
 /// fills the detail pane. Creating, editing and deleting all happen here rather than in sheets.
@@ -13,11 +15,17 @@ struct MonitorsView: View {
 
     @State private var selection: Selection?
     @State private var notificationsDenied = false
+    @State private var isRunning = false
+    @State private var runMessage: String?
     /// Set to route a delete request through one confirmation, wherever it came from (the list's
     /// swipe/context menu or the editor's Delete button).
     @State private var monitorToDelete: Monitor?
+    #if os(macOS)
+    @AppStorage(AppSettings.Key.showMonitorMenuBar) private var showsMonitorMenuBar = false
+    #endif
 
     private let device = DeviceIdentity.current
+    private let glanceTip = MonitorGlanceTip()
 
     /// The detail pane shows either an existing monitor's editor or a blank one for a new monitor.
     /// A separate `.draft` case keeps the new-monitor form from being confused with any saved row.
@@ -46,6 +54,17 @@ struct MonitorsView: View {
                 applyNavigationRequest()
             }
             .onChange(of: navigation.request?.id) { _, _ in applyNavigationRequest() }
+            // The glance tip is only worth showing once something is actually being checked.
+            .task(id: enabledMonitorCount) {
+                MonitorGlanceTip.hasEnabledMonitor = enabledMonitorCount > 0
+            }
+            #if os(macOS)
+            .task(id: showsMonitorMenuBar) {
+                if showsMonitorMenuBar {
+                    glanceTip.invalidate(reason: .actionPerformed)
+                }
+            }
+            #endif
             .onChange(of: scenePhase) { _, phase in
                 guard phase == .active else { return }
                 // System Settings changes notification authorization while this view remains
@@ -72,12 +91,16 @@ struct MonitorsView: View {
                 .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Monitors")
-        .toolbar { runNowButton }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) { runNowButton }
+        }
         #else
         NavigationStack {
             sidebar
                 .navigationTitle("Monitors")
-                .toolbar { runNowButton }
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) { runNowButton }
+                }
                 .navigationDestination(item: $selection) { selection in
                     editor(for: selection)
                         .navigationTitle(selection.isDraft ? "New Monitor" : "Edit Monitor")
@@ -98,9 +121,17 @@ struct MonitorsView: View {
                 Divider()
             }
 
+            if !monitors.isEmpty {
+                overviewBar
+                glanceTipView
+                Divider()
+            }
+
             List(selection: $selection) {
                 ForEach(monitors) { monitor in
                     MonitorRow(monitor: monitor, deviceID: device.id)
+                        // On-screen awareness: Siri can act on the monitor a person is looking at.
+                        .appEntityIdentifier(EntityIdentifier(for: MonitorEntity.self, identifier: monitor.id))
                         .tag(Selection.existing(monitor))
                         .swipeActions(edge: .trailing) {
                             Button("Delete", systemImage: "trash", role: .destructive) {
@@ -135,8 +166,7 @@ struct MonitorsView: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.glass)
-        .disabled(savedQueries.isEmpty)
-        .help(savedQueries.isEmpty ? "Save a query first, then you can watch it." : "Create a monitor")
+        .help("Create a monitor and build a query, or reuse one you already saved")
         .bottomBar()
     }
 
@@ -152,6 +182,27 @@ struct MonitorsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
+    private var glanceTipView: some View {
+        #if os(macOS)
+        TipView(glanceTip) { action in
+            if action.id == MonitorGlanceTip.showInMenuBarActionID {
+                showsMonitorMenuBar = true
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 9)
+        #else
+        TipView(glanceTip)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 9)
+        #endif
+    }
+
+    private var enabledMonitorCount: Int {
+        monitors.filter { $0.activation(for: device.id)?.isEnabled == true }.count
+    }
+
     private func refreshNotificationAuthorization(requestIfNeeded: Bool = false) async {
         if requestIfNeeded {
             await NotificationService.requestAuthorization()
@@ -164,13 +215,43 @@ struct MonitorsView: View {
             Label("No Monitors", systemImage: "bell.badge")
         } description: {
             Text(savedQueries.isEmpty
-                 ? "Save a query first, then you can watch it for changes."
+                 ? "Build a query here and have DB Connect check it automatically."
                  : "Watch a saved query and get notified when its result changes.")
         } actions: {
-            if !savedQueries.isEmpty {
-                Button("New Monitor", systemImage: "plus") { selection = .draft }
+            Button("New Monitor", systemImage: "plus") { selection = .draft }
+        }
+    }
+
+    private var overviewBar: some View {
+        let activations = monitors.compactMap { $0.activation(for: device.id) }
+        let enabled = activations.filter(\.isEnabled).count
+        let errors = activations.filter { $0.lastErrorMessage != nil }.count
+
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 12) {
+                Label("\(enabled) active", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(enabled > 0 ? .green : .secondary)
+                if errors > 0 {
+                    Label("\(errors) need attention", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                Spacer()
+            }
+            if let runMessage {
+                Text(runMessage)
+                    .foregroundStyle(errors > 0 ? .orange : .secondary)
+                    .lineLimit(2)
+            } else {
+                Text(enabled == 0
+                     ? "Turn on a monitor to start checking it on this device."
+                     : "Checks run while DB Connect is available on this device.")
+                    .foregroundStyle(.secondary)
             }
         }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Detail
@@ -211,14 +292,34 @@ struct MonitorsView: View {
             )
             // Rebuild when a different monitor is selected so its values load via `onAppear`.
             .id(monitor.id)
+            .appEntityIdentifier(EntityIdentifier(for: MonitorEntity.self, identifier: monitor.id))
         }
     }
 
     private var runNowButton: some View {
-        Button("Run Now", systemImage: "play.circle") {
-            Task { await scheduler?.runDue(force: true) }
+        Button {
+            runAll()
+        } label: {
+            if isRunning {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Checking monitors")
+            } else {
+                Label("Check Now", systemImage: "play.fill")
+            }
         }
-        .disabled(monitors.isEmpty)
+        .disabled(monitors.isEmpty || isRunning)
+        .help("Check every enabled monitor on this device now")
+    }
+
+    private func runAll() {
+        isRunning = true
+        runMessage = nil
+        Task {
+            let summary = await scheduler?.runDue(force: true)
+            runMessage = summary?.message
+            isRunning = false
+        }
     }
 
     // MARK: Deletion

@@ -35,7 +35,7 @@ struct UserAdminView: View {
                 #endif
                 .toolbar {
                     if let onDismiss {
-                        ToolbarItem(placement: .cancellationAction) {
+                        ToolbarItem(placement: .confirmationAction) {
                             Button("Done", action: onDismiss)
                         }
                     }
@@ -44,13 +44,11 @@ struct UserAdminView: View {
                             showsNewUser = true
                         }
                     }
-                    ToolbarItem(placement: .secondaryAction) {
+                    ToolbarItemGroup(placement: .secondaryAction) {
                         Button("Delete User", systemImage: "person.badge.minus", role: .destructive) {
                             userToDelete = selection
                         }
                         .disabled(selection == nil)
-                    }
-                    ToolbarItem(placement: .secondaryAction) {
                         Button("Reload", systemImage: "arrow.clockwise") { Task { await load() } }
                     }
                 }

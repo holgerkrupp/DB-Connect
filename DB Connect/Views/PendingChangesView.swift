@@ -45,7 +45,7 @@ struct PendingChangesView: View {
             .navigationTitle("Review Changes")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(isCommitting ? "Applying…" : "Apply") {

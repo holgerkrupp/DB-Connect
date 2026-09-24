@@ -150,7 +150,7 @@ struct DataTransferView: View {
             .navigationTitle("Import & Export")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(operation.rawValue) {

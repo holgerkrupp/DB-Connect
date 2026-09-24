@@ -37,10 +37,10 @@ struct UserManagementView: View {
             }
             .navigationTitle("Users")
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem {
+                ToolbarItem(placement: .primaryAction) {
                     Button("Add User", systemImage: "person.badge.plus") { showsNewUser = true }
                         // Separate privilege: an account may be able to grant on one database
                         // yet have no right to create server accounts.

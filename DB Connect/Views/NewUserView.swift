@@ -209,11 +209,13 @@ struct PrivilegeEditorView: View {
             .navigationTitle(user.displayName)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button("Close", systemImage: "xmark") { dismiss() }
                 }
-                ToolbarItemGroup(placement: .confirmationAction) {
+                ToolbarItem(placement: .destructiveAction) {
                     Button("Revoke", role: .destructive) { Task { await apply(granting: false) } }
                         .disabled(!canApply)
+                }
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Grant") { Task { await apply(granting: true) } }
                         .disabled(!canApply)
                 }

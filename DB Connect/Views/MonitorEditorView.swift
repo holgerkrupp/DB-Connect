@@ -13,6 +13,7 @@ struct MonitorEditorView: View {
     var onCancel: (() -> Void)?
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.monitorScheduler) private var scheduler
     @Query(sort: \SavedQuery.title) private var savedQueries: [SavedQuery]
     @Query(sort: [SortDescriptor(\Connection.sortOrder), SortDescriptor(\Connection.createdAt)])
     private var connections: [Connection]
@@ -35,6 +36,8 @@ struct MonitorEditorView: View {
     @State private var messageTemplate = ""
     @State private var fieldDrafts: [NotificationTemplateEditor.FieldDraft] = []
     @State private var showsHistory = false
+    @State private var isChecking = false
+    @State private var checkMessage: String?
     @State private var autoSaveTask: Task<Void, Never>?
     @State private var lastSavedSnapshot = AutoSaveSnapshot.empty
 
@@ -168,7 +171,14 @@ struct MonitorEditorView: View {
         Form {
                 Section("Monitor") {
                     TextField("Title", text: $title)
+                    if monitor == nil, !canSave {
+                        Label(validationMessage, systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+
+                if monitor != nil { statusSection }
 
                 querySection
 
@@ -440,23 +450,87 @@ struct MonitorEditorView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            if monitor == nil, let onCancel {
+        if monitor == nil, let onCancel {
+            ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel", role: .cancel) { onCancel() }
                     .keyboardShortcut(.cancelAction)
             }
-            if let monitor {
+        }
+        if let monitor {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    checkNow(monitor)
+                } label: {
+                    if isChecking {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Label("Check Now", systemImage: "play.fill")
+                    }
+                }
+                .disabled(isChecking || !runsOnThisDevice)
+            }
+            ToolbarItem(placement: .secondaryAction) {
                 Button("History", systemImage: "chart.xyaxis.line") { showsHistory = true }
                     .disabled((monitor.activations ?? []).isEmpty)
+            }
+            ToolbarItem(placement: .secondaryAction) {
                 Button("Delete", systemImage: "trash", role: .destructive) { onDelete(monitor) }
             }
         }
     }
 
     private var canSave: Bool {
-        !title.isEmpty
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && queryConnection != nil
             && !querySQL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var validationMessage: String {
+        if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Give this monitor a name to continue."
+        }
+        if queryConnection == nil {
+            return "Choose the database connection this query should use."
+        }
+        return "Enter the SQL query DB Connect should check."
+    }
+
+    @ViewBuilder
+    private var statusSection: some View {
+        if let activation = monitor?.activation(for: device.id) {
+            Section("Status on \(device.name)") {
+                LabeledContent("Monitoring") {
+                    Label(
+                        activation.isEnabled ? "On" : "Off",
+                        systemImage: activation.isEnabled ? "checkmark.circle.fill" : "pause.circle.fill"
+                    )
+                    .foregroundStyle(activation.isEnabled ? .green : .secondary)
+                }
+                if let value = activation.lastValue {
+                    LabeledContent("Latest value", value: MonitorRow.format(value))
+                        .monospacedDigit()
+                }
+                if let date = activation.lastRunAt {
+                    LabeledContent("Last successful check") {
+                        Text(date.formatted(date: .abbreviated, time: .shortened))
+                    }
+                }
+                if let error = activation.lastErrorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                if let checkMessage {
+                    Text(checkMessage)
+                        .font(.caption)
+                        .foregroundStyle(activation.lastErrorMessage == nil ? Color.secondary : Color.orange)
+                }
+            }
+        } else {
+            Section("Status on \(device.name)") {
+                Label("This monitor is off on this device.", systemImage: "pause.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private var autoSaveSnapshot: AutoSaveSnapshot {
@@ -700,17 +774,7 @@ struct MonitorEditorView: View {
             modelContext.insert(field)
         }
 
-        // This device's activation row — created lazily, so a device that never opts in
-        // does not clutter every monitor with an empty record.
-        if let existing = target.activation(for: device.id) {
-            existing.isEnabled = runsOnThisDevice
-            // Re-enabling starts a fresh baseline; a stale one would produce a bogus first delta.
-            if !runsOnThisDevice { existing.lastValue = nil }
-        } else if runsOnThisDevice {
-            let activation = MonitorActivation(device: device, isEnabled: true)
-            activation.monitor = target
-            modelContext.insert(activation)
-        }
+        target.setEnabled(runsOnThisDevice, on: device, in: modelContext)
 
         try? modelContext.save()
         lastSavedSnapshot = autoSaveSnapshot
@@ -754,6 +818,22 @@ struct MonitorEditorView: View {
     private func updateCustomInterval() {
         guard schedulePreset == .custom, scheduleKind == .interval else { return }
         intervalMinutes = min(max(1, customIntervalValue) * customIntervalUnit.multiplier, 525_600)
+    }
+
+    private func checkNow(_ monitor: Monitor) {
+        // Commit the SQL and condition currently on screen so Check Now always tests what the
+        // user sees, not the last debounced auto-save from a fraction of a second ago.
+        if canSave, autoSaveSnapshot != lastSavedSnapshot {
+            autoSaveTask?.cancel()
+            save(notifySelection: false)
+        }
+        isChecking = true
+        checkMessage = nil
+        Task {
+            let summary = await scheduler?.run(monitorID: monitor.id)
+            checkMessage = summary?.message
+            isChecking = false
+        }
     }
 
     private static func dateForTime(hour: Int, minute: Int) -> Date {

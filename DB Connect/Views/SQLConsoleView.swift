@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import TipKit
 
 /// Ad-hoc SQL editor with results below and access to the connection's saved queries.
 struct SQLConsoleView: View {
@@ -21,6 +22,7 @@ struct SQLConsoleView: View {
     @State private var showsQueryLibrary = false
     @State private var queryLibrarySection = QueryLibrarySection.favorites
     @State private var startsQuerySave = false
+    private let favoritesTip = FavoriteTabTriggerTip()
 
     @AppStorage(AppSettings.Key.identifierCorrection)
     private var correctionRaw = AppSettings.CorrectionMode.caseOnly.rawValue
@@ -52,19 +54,27 @@ struct SQLConsoleView: View {
             }
         }
         .task { await loadSchema() }
+        .task {
+            // Someone who already has a tab trigger does not need to be told about them.
+            if allFavorites.contains(where: { !$0.tabTrigger.isEmpty }) {
+                favoritesTip.invalidate(reason: .actionPerformed)
+            }
+        }
         .toolbar {
-            ToolbarItemGroup(placement: .secondaryAction) {
+            ToolbarItem(placement: .secondaryAction) {
                 Button("Queries", systemImage: "text.book.closed") {
                     startsQuerySave = false
                     showsQueryLibrary = true
                 }
                 .help("Favorites, saved queries, and recent history")
+                .popoverTip(favoritesTip)
             }
             ToolbarItem(placement: .primaryAction) {
                 // The ⌘↩ shortcut lives on the Query menu item instead — binding it in both
                 // places registers it twice and the menu item stops showing its key equivalent.
                 Button("Run", systemImage: "play.fill") { run() }
                     .disabled(trimmedSQL.isEmpty || isRunning)
+                    .help("Run the SQL in the editor")
             }
         }
         .focusedSceneValue(\.consoleActions, ConsoleActions(
@@ -305,6 +315,10 @@ struct SQLConsoleView: View {
                 }
             }
             isRunning = false
+
+            if failure == nil {
+                await FavoriteTabTriggerTip.queryRun.donate()
+            }
 
             if recordHistory {
                 let elapsed = Double(started.duration(to: .now).components.seconds)

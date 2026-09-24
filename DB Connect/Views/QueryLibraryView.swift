@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import TipKit
 #if os(macOS)
 import AppKit
 #else
@@ -558,6 +559,9 @@ struct QueryLibraryView: View {
             modelContext.insert(favorite)
         }
         try? modelContext.save()
+        if !trigger.isEmpty {
+            FavoriteTabTriggerTip().invalidate(reason: .actionPerformed)
+        }
     }
 
     private func load(_ sql: String) {

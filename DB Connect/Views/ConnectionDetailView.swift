@@ -17,6 +17,7 @@ struct WorkspaceModePicker: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+        .help("Browse tables or write SQL")
         .frame(
             minWidth: compact ? 100 : 150,
             idealWidth: compact ? 110 : 190,
@@ -121,30 +122,24 @@ struct ConnectionDetailView: View {
         .toolbar {
             #if os(macOS)
             if let session {
-                ToolbarItem {
+                ToolbarItem(placement: .navigation) {
                     Button("Tables", systemImage: "sidebar.squares.left") {
                         withAnimation { showsTableList.toggle() }
                     }
                     .help(showsTableList ? "Hide the table list" : "Show the table list")
                 }
-                ToolbarSpacer(.flexible)
-                ToolbarItemGroup {
-                    serverControlItems(for: session)
-                }
-                ToolbarSpacer(.fixed)
-                
-                ToolbarItemGroup(placement: .primaryAction) {
+                ToolbarItem(placement: .principal) {
                     modePicker(for: session)
                         .frame(width: 160)
+                }
+                ToolbarItemGroup(placement: .secondaryAction) {
+                    serverControlItems(for: session)
                 }
             }
             #else
             if horizontalSizeClass == .compact, let session {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    Group {
-                        serverControlItems(for: session)
-                    }
-                    .labelStyle(.iconOnly)
+                ToolbarItemGroup(placement: .secondaryAction) {
+                    serverControlItems(for: session)
                 }
             }
             #endif
@@ -352,6 +347,7 @@ struct ConnectionDetailView: View {
         HStack(spacing: 8) {
             serverControlItems(for: session)
         }
+        .labelStyle(.iconOnly)
     }
 
     /// Individual siblings so macOS can place each control natively in a `ToolbarItemGroup`.
@@ -369,6 +365,7 @@ struct ConnectionDetailView: View {
             }
             .pickerStyle(.menu)
             .disabled(isSwitching)
+            .help("Switch to another database on this server")
 
             if isSwitching {
                 DatabaseLoadingIndicator(size: 14)
@@ -377,7 +374,7 @@ struct ConnectionDetailView: View {
 
 
 
-        Menu("Connection Actions", systemImage: "ellipsis.circle") {
+        Menu("Connection Actions", systemImage: "ellipsis") {
             Button("Import Data…", systemImage: "square.and.arrow.down") {
                 transferOperation = .import
             }
@@ -436,7 +433,7 @@ struct ConnectionDetailView: View {
                 reconnect()
             }
         }
-        .labelStyle(.iconOnly)
+        .help("Import, export, schema, and server actions")
     }
 
     /// The main working area: browser or console, depending on mode.

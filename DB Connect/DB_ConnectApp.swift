@@ -13,12 +13,18 @@ struct DB_ConnectApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     static let appModelContainer = makeContainer()
+    static let mainWindowID = "main"
 
     let sharedModelContainer: ModelContainer
     @State private var scheduler: MonitorScheduler
     @State private var purchaseManager: PurchaseManager
+    #if os(macOS)
+    @AppStorage(AppSettings.Key.showMonitorMenuBar) private var showMonitorMenuBar = false
+    #endif
 
     init() {
+        AppTips.configure()
+
         let container = Self.appModelContainer
         self.sharedModelContainer = container
         let scheduler = MonitorScheduler(container: container)
@@ -69,7 +75,7 @@ struct DB_ConnectApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: Self.mainWindowID) {
             ContentView(purchaseManager: purchaseManager)
                 .environment(\.monitorScheduler, scheduler)
                 .environment(\.appNavigation, AppNavigation.shared)
@@ -107,6 +113,18 @@ struct DB_ConnectApp: App {
         .modelContainer(sharedModelContainer)
 
         #if os(macOS)
+        MenuBarExtra(
+            "DB Connect Monitors",
+            systemImage: "bell.badge",
+            isInserted: $showMonitorMenuBar
+        ) {
+            MonitorMenuBarView()
+                .environment(\.monitorScheduler, scheduler)
+                .environment(\.appNavigation, AppNavigation.shared)
+        }
+        .menuBarExtraStyle(.window)
+        .modelContainer(sharedModelContainer)
+
         Window("Getting Started", id: DBConnectDocumentationWindow.onboardingSceneID) {
             DBConnectOnboardingView()
         }
