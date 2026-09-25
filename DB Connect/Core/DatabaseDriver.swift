@@ -17,6 +17,7 @@ nonisolated enum ConnectionTransportMode: String, Sendable, Hashable, CaseIterab
 nonisolated enum DatabaseAuthenticationMode: String, Sendable, Hashable, CaseIterable {
     case password
     case awsIAM
+    case vaultOIDC
 }
 
 /// The database-auth path for one connection.
@@ -27,10 +28,17 @@ nonisolated struct DatabaseAuthenticationConfiguration: Sendable, Hashable {
     var mode: DatabaseAuthenticationMode
     /// Used by AWS IAM authentication.
     var awsRegion: String
+    /// Used by Vault OIDC authentication. Leased credentials stay runtime-only.
+    var vault: VaultAuthenticationConfiguration?
 
-    init(mode: DatabaseAuthenticationMode = .password, awsRegion: String = "") {
+    init(
+        mode: DatabaseAuthenticationMode = .password,
+        awsRegion: String = "",
+        vault: VaultAuthenticationConfiguration? = nil
+    ) {
         self.mode = mode
         self.awsRegion = awsRegion
+        self.vault = vault
     }
 }
 
@@ -221,6 +229,15 @@ nonisolated extension Secret {
                 guard let value else { return false }
                 return !value.isEmpty
             }
+    }
+
+    /// Vault owns the MySQL password for the lifetime of a lease. This helper keeps a saved
+    /// password from being combined with Vault credentials when an editor switches auth modes.
+    func removingStaticDatabasePassword(for mode: DatabaseAuthenticationMode) -> Secret {
+        guard mode == .vaultOIDC else { return self }
+        var result = self
+        result.password = nil
+        return result
     }
 }
 

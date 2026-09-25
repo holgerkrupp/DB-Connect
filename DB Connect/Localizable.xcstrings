@@ -1,0 +1,2073 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "·" : {
+
+    },
+    "(this device)" : {
+
+    },
+    "#%lld" : {
+
+    },
+    "%" : {
+
+    },
+    "% lets this account connect from any address. Prefer a specific host or IP where you can." : {
+
+    },
+    "%@" : {
+
+    },
+    "%@ – %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ – %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "%@ · %@ · %llds" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ · %3$llds"
+          }
+        }
+      }
+    },
+    "%@ · %@ line%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · %2$@ line%3$@"
+          }
+        }
+      }
+    },
+    "%@ (%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$lld)"
+          }
+        }
+      }
+    },
+    "%@ %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ %2$@"
+          }
+        }
+      }
+    },
+    "%@ executable statement%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ executable statement%2$@"
+          }
+        }
+      }
+    },
+    "%@ rows · %lld columns" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ rows · %2$lld columns"
+          }
+        }
+      }
+    },
+    "%@ Use Choose File… and, for writable databases, Grant Folder Access… here to grant access on this Mac; there is no separate permission prompt." : {
+
+    },
+    "%lld" : {
+
+    },
+    "%lld active" : {
+
+    },
+    "%lld need attention" : {
+
+    },
+    "%lld pending change%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld pending change%2$@"
+          }
+        }
+      }
+    },
+    "%lld rows" : {
+
+    },
+    "%lld rows per page" : {
+
+    },
+    "%lld selected" : {
+
+    },
+    "%lld unsaved" : {
+
+    },
+    "%lld: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld: %2$@"
+          }
+        }
+      }
+    },
+    "%lld:00" : {
+
+    },
+    "255" : {
+
+    },
+    "A key is stored in your iCloud Keychain. Leave this blank to keep it." : {
+
+    },
+    "A message can include the monitor’s current value and fields supplied by other saved queries. Use a cooldown to avoid repeated alerts while a condition remains true." : {
+
+    },
+    "A password is stored in your iCloud Keychain. Leave this blank to keep it." : {
+
+    },
+    "A primary key lets rows be edited later. Tables without one open read-only." : {
+
+    },
+    "Access" : {
+
+    },
+    "Access Key ID" : {
+
+    },
+    "Access Key ID (unchanged)" : {
+
+    },
+    "Account" : {
+
+    },
+    "Accounts" : {
+
+    },
+    "Actions" : {
+
+    },
+    "Actions for %@" : {
+
+    },
+    "Actions for group %@" : {
+
+    },
+    "Add a row to this table" : {
+
+    },
+    "Add Column" : {
+
+    },
+    "Add DB Connect widgets from the system widget gallery to show monitor status or saved-query shortcuts. Widgets use a privacy-conscious snapshot of titles and status; they do not contain database result sets or credentials. Tapping an item opens the corresponding place in DB Connect." : {
+
+    },
+    "Add Query Result" : {
+
+    },
+    "Add Row" : {
+
+    },
+    "Add Row…" : {
+
+    },
+    "Add User" : {
+
+    },
+    "Add UTF-8 byte-order mark" : {
+
+    },
+    "Additional query result" : {
+
+    },
+    "Adjust row height, text wrapping, and column widths" : {
+
+    },
+    "Allowed From" : {
+
+    },
+    "Always free" : {
+
+    },
+    "Amount" : {
+
+    },
+    "any host" : {
+
+    },
+    "API Key" : {
+
+    },
+    "API Key (unchanged)" : {
+
+    },
+    "Apply" : {
+
+    },
+    "Applying…" : {
+
+    },
+    "At a set time each day" : {
+
+    },
+    "At most once a day" : {
+
+    },
+    "At most once an hour" : {
+
+    },
+    "At most once every %lld minutes" : {
+
+    },
+    "At most once every 6 hours" : {
+
+    },
+    "At most once every 15 minutes" : {
+
+    },
+    "Auth Mount" : {
+
+    },
+    "Auth Role" : {
+
+    },
+    "Authentication" : {
+
+    },
+    "Auto-increment" : {
+
+    },
+    "Automatic description" : {
+
+    },
+    "AWS IAM" : {
+
+    },
+    "AWS IAM generates a fresh short-lived token each time DB Connect opens or reopens the MySQL connection." : {
+
+    },
+    "AWS Region" : {
+
+    },
+    "Back" : {
+
+    },
+    "Browse tables or write SQL" : {
+
+    },
+    "Build a query here and have DB Connect check it automatically." : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Cannot Load MySQL Administration" : {
+
+    },
+    "Cannot Load Table Details" : {
+
+    },
+    "Cannot Load Tables" : {
+
+    },
+    "Cannot Manage Users" : {
+
+    },
+    "Cannot Open User Manager" : {
+
+    },
+    "Certificate imported" : {
+
+    },
+    "Change" : {
+
+    },
+    "Change Folder…" : {
+
+    },
+    "Change Password" : {
+
+    },
+    "Change Password…" : {
+
+    },
+    "Check All" : {
+
+    },
+    "Check all enabled monitors now" : {
+
+    },
+    "Check All Now" : {
+
+    },
+    "Check every enabled monitor on this device now" : {
+
+    },
+    "Check Now" : {
+
+    },
+    "Checking monitors" : {
+
+    },
+    "Checks every enabled DB Connect monitor on this device now." : {
+
+    },
+    "Checks run while DB Connect is available on this device." : {
+
+    },
+    "Choose a database first…" : {
+
+    },
+    "Choose a database…" : {
+
+    },
+    "Choose a table…" : {
+
+    },
+    "Choose an account to view and edit its privileges." : {
+
+    },
+    "Choose Database File…" : {
+
+    },
+    "Choose File…" : {
+
+    },
+    "Choose from the databases on this connection" : {
+
+    },
+    "Choose query…" : {
+
+    },
+    "Choose…" : {
+
+    },
+    "Clear" : {
+
+    },
+    "Clear All" : {
+
+    },
+    "Clear Editor" : {
+
+    },
+    "Clear History" : {
+
+    },
+    "Clear query history?" : {
+
+    },
+    "Clear Search" : {
+
+    },
+    "Clear Visible" : {
+
+    },
+    "Clear…" : {
+
+    },
+    "Click a cell to change its value, or double-click a row to open the full editor. Nothing is written until you review and apply your changes." : {
+
+    },
+    "Close" : {
+
+    },
+    "Close Connection" : {
+
+    },
+    "Color" : {
+
+    },
+    "Column" : {
+
+    },
+    "Column mapping" : {
+
+    },
+    "Column name" : {
+
+    },
+    "Column names and basic types are inferred from the first 200 rows. Review the table structure after importing." : {
+
+    },
+    "Columns" : {
+
+    },
+    "Comma (,)" : {
+
+    },
+    "Condition" : {
+
+    },
+    "Connect" : {
+
+    },
+    "Connect Through SSH Tunnel" : {
+
+    },
+    "Connection" : {
+
+    },
+    "Connection Actions" : {
+
+    },
+    "Connection Failed" : {
+
+    },
+    "Connection Options" : {
+
+    },
+    "Connections" : {
+
+    },
+    "Content" : {
+
+    },
+    "Continue" : {
+
+    },
+    "Copy SQL" : {
+
+    },
+    "Copy the server error, verify the selected database and schema, then test the smallest relevant statement. For imports, inspect the failed-statement list, delimiter and encoding, column mapping, constraints, and transaction or account permissions." : {
+
+    },
+    "Correct names automatically" : {
+
+    },
+    "Could Not Apply Changes" : {
+
+    },
+    "Could Not Delete User" : {
+
+    },
+    "Create" : {
+
+    },
+    "Create a folder for organizing saved connections." : {
+
+    },
+    "Create a monitor and build a query, or reuse one you already saved" : {
+
+    },
+    "Create a monitor to see its status here." : {
+
+    },
+    "Create a monitor to watch a saved query." : {
+
+    },
+    "Create a new account" : {
+
+    },
+    "Create a new table" : {
+
+    },
+    "Created: %@" : {
+
+    },
+    "Credentials" : {
+
+    },
+    "CSV data" : {
+
+    },
+    "CSV format" : {
+
+    },
+    "CSV options" : {
+
+    },
+    "Current" : {
+
+    },
+    "Current Grants" : {
+
+    },
+    "Custom schedule" : {
+
+    },
+    "Data" : {
+
+    },
+    "Database" : {
+
+    },
+    "Database (optional)" : {
+
+    },
+    "Database Authentication" : {
+
+    },
+    "Database File" : {
+
+    },
+    "Database Mount" : {
+
+    },
+    "Database name" : {
+
+    },
+    "Database objects" : {
+
+    },
+    "Database Role" : {
+
+    },
+    "DB Connect" : {
+
+    },
+    "DB Connect can underline names that do not match the schema, silently correct capitalization, and offer spelling fixes. Settings controls how much it may change automatically. Quoted identifiers and aliases defined by the query are left alone." : {
+
+    },
+    "DB Connect could not finish starting" : {
+
+    },
+    "DB Connect could not finish starting." : {
+
+    },
+    "DB Connect Documentation" : {
+
+    },
+    "DB Connect hides or disables an administrative action when the driver, server, selected object, read-only setting, or current account cannot safely perform it. An unavailable command is therefore often contextual rather than an app failure." : {
+
+    },
+    "DB Connect infers a compact starter schema from the first 200 rows. Review indexes, defaults, and exact types after the import." : {
+
+    },
+    "DB Connect Monitors" : {
+
+    },
+    "DB Connect stores SQLite file access locally on this Mac. Read-only connections only need the database file itself." : {
+
+    },
+    "DB Connect uses the system OpenSSH client on macOS and requires a trusted host key in your normal SSH known-hosts configuration. Unknown or changed host keys fail closed instead of being accepted silently." : {
+
+    },
+    "Default" : {
+
+    },
+    "Definer: %@" : {
+
+    },
+    "Delete" : {
+
+    },
+    "Delete “%@”?" : {
+
+    },
+    "Delete Connection…" : {
+
+    },
+    "Delete Favorite" : {
+
+    },
+    "Delete Favorite…" : {
+
+    },
+    "Delete Monitor" : {
+
+    },
+    "Delete Query" : {
+
+    },
+    "Delete User" : {
+
+    },
+    "Delete User…" : {
+
+    },
+    "Delete…" : {
+
+    },
+    "Deselect All" : {
+
+    },
+    "Destination" : {
+
+    },
+    "Devices" : {
+
+    },
+    "Disabled" : {
+
+    },
+    "Discard" : {
+
+    },
+    "Discard Draft" : {
+
+    },
+    "Display" : {
+
+    },
+    "Do not import" : {
+
+    },
+    "Documentation" : {
+
+    },
+    "Done" : {
+
+    },
+    "Double quote (\")" : {
+
+    },
+    "Drag to resize %@" : {
+
+    },
+    "Drop" : {
+
+    },
+    "Duplicate" : {
+
+    },
+    "Duplicate Connection" : {
+
+    },
+    "Duplicate Favorite" : {
+
+    },
+    "Dynamic tokens: `$DATABASE`, `$TABLE`, `$CONNECTION`, `$DATE`, `$TIME`. Snippet tokens: `${1:columns}` and `$0`." : {
+
+    },
+    "Each device decides for itself whether to run this monitor, and keeps its own history. Enabling it on several devices means several notifications." : {
+
+    },
+    "Edit" : {
+
+    },
+    "Edit changes the selected definition. Duplicate copies configuration but deliberately does not copy the password or API key. Delete removes the definition and its Keychain secret; it never deletes the remote database or SQLite file." : {
+
+    },
+    "Edit Connection" : {
+
+    },
+    "Edit Connection…" : {
+
+    },
+    "Edit Favorite" : {
+
+    },
+    "Edit Favorite…" : {
+
+    },
+    "Edit Right in the Grid" : {
+
+    },
+    "Edit Row" : {
+
+    },
+    "Edit this connection's settings" : {
+
+    },
+    "Edit this favorite, then choose Connect" : {
+
+    },
+    "Edit…" : {
+
+    },
+    "Editor" : {
+
+    },
+    "Empty Database" : {
+
+    },
+    "Encryption" : {
+
+    },
+    "Endpoint" : {
+
+    },
+    "Enter a row number to open the page containing it." : {
+
+    },
+    "Errors will be collected and the remaining statements will continue. Transaction wrapping is disabled because PostgreSQL cannot continue a failed transaction." : {
+
+    },
+    "Every time the condition is met" : {
+
+    },
+    "Export Data…" : {
+
+    },
+    "Export multiple tables" : {
+
+    },
+    "Favorite" : {
+
+    },
+    "Favorite Actions" : {
+
+    },
+    "Favorites" : {
+
+    },
+    "Favorites can be global or connection-scoped. Use `$DATABASE`, `$TABLE`, `$CONNECTION`, `${1:placeholder}`, and `$0` in favorite SQL. Typing a tab trigger then pressing Tab expands it directly in the editor." : {
+
+    },
+    "Favorites in this group will remain saved and move to Favorites." : {
+
+    },
+    "Favorites, saved queries, and recent history" : {
+
+    },
+    "Favorites…" : {
+
+    },
+    "Field delimiter" : {
+
+    },
+    "Fields enclosed by" : {
+
+    },
+    "File format" : {
+
+    },
+    "Filter" : {
+
+    },
+    "Filter processes" : {
+
+    },
+    "Filter tables" : {
+
+    },
+    "Filter tables and views" : {
+
+    },
+    "Filter variables" : {
+
+    },
+    "Find Favorites" : {
+
+    },
+    "First page" : {
+
+    },
+    "First Page" : {
+
+    },
+    "First row contains column names" : {
+
+    },
+    "Fix" : {
+
+    },
+    "Fix All" : {
+
+    },
+    "Flags" : {
+
+    },
+    "Flush Privileges" : {
+
+    },
+    "Flush privileges now?" : {
+
+    },
+    "Flush Privileges…" : {
+
+    },
+    "Folder access granted" : {
+
+    },
+    "Folder access not granted" : {
+
+    },
+    "For example https://abcdefgh.supabase.co — the /rest/v1 path is added automatically." : {
+
+    },
+    "Forget Saved File Access" : {
+
+    },
+    "Forget Saved Folder Access" : {
+
+    },
+    "Format" : {
+
+    },
+    "General" : {
+
+    },
+    "Getting Started" : {
+
+    },
+    "Global" : {
+
+    },
+    "Go" : {
+
+    },
+    "Go to row" : {
+
+    },
+    "Go to Row" : {
+
+    },
+    "Go to Row…" : {
+
+    },
+    "Grant" : {
+
+    },
+    "Grant Folder Access…" : {
+
+    },
+    "Grants for %@" : {
+
+    },
+    "Group Actions" : {
+
+    },
+    "Group name" : {
+
+    },
+    "Hide Table List" : {
+
+    },
+    "Hide the table list" : {
+
+    },
+    "Highlight SQL syntax" : {
+
+    },
+    "History" : {
+
+    },
+    "History appears once this monitor has run at least twice on a device." : {
+
+    },
+    "History keeps the last %lld statements per connection, along with how long each took. Result rows are never stored." : {
+
+    },
+    "Host" : {
+
+    },
+    "Import & Export" : {
+
+    },
+    "Import Data…" : {
+
+    },
+    "Import errors (%lld)" : {
+
+    },
+    "Import in one transaction" : {
+
+    },
+    "Import Unavailable" : {
+
+    },
+    "Import, export, schema, and server actions" : {
+
+    },
+    "Import…" : {
+
+    },
+    "Include column names" : {
+
+    },
+    "Include generated columns in INSERT statements" : {
+
+    },
+    "Initial Privileges" : {
+
+    },
+    "Insert into Editor" : {
+
+    },
+    "Keep connections alive" : {
+
+    },
+    "Keep the default path for ordinary server connections. Local sockets, SSH tunnelling, and IAM credentials are opt-in so they stay discoverable without crowding the basic flow." : {
+
+    },
+    "key — not editable" : {
+
+    },
+    "Key Passphrase (optional)" : {
+
+    },
+    "Large script detected. Showing a preview from the opening part of the file." : {
+
+    },
+    "Last check" : {
+
+    },
+    "Last page" : {
+
+    },
+    "Last Page" : {
+
+    },
+    "Last successful check" : {
+
+    },
+    "Last successful check %@" : {
+
+    },
+    "Latest value" : {
+
+    },
+    "Leave the database blank to choose one after connecting." : {
+
+    },
+    "Line endings" : {
+
+    },
+    "Load in Editor" : {
+
+    },
+    "Load into Editor" : {
+
+    },
+    "Load Query" : {
+
+    },
+    "Local Socket" : {
+
+    },
+    "Login" : {
+
+    },
+    "Manage server accounts" : {
+
+    },
+    "Manage Users is available for supported MySQL and PostgreSQL sessions. MySQL and MariaDB accounts can be edited at global, database, and single-table scope, including the server privileges that DB Connect exposes only when the current connection actually supports them. PostgreSQL keeps the simpler cross-database grant flow. The signed-in account still needs permission to perform each operation." : {
+
+    },
+    "Manage Users…" : {
+
+    },
+    "Marked privileges can destroy data. Grant applies the selection; Revoke removes it." : {
+
+    },
+    "Message" : {
+
+    },
+    "Method" : {
+
+    },
+    "Monitor" : {
+
+    },
+    "Monitoring" : {
+
+    },
+    "Monitors" : {
+
+    },
+    "Move Down" : {
+
+    },
+    "Move to Group" : {
+
+    },
+    "Move Up" : {
+
+    },
+    "MySQL — Vault OIDC" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MySQL — Vault OIDC"
+          }
+        }
+      }
+    },
+    "MySQL Admin" : {
+
+    },
+    "MySQL Administration" : {
+
+    },
+    "MySQL Administration…" : {
+
+    },
+    "MySQL contextual help for SQL terms is not shipped yet. Server-side HELP support and access to the mysql help tables vary across MySQL, MariaDB, and hosted services, and DB Connect does not want to fall back to shell execution or bundled stale help text without a clearer trust and update model. The current Phase 2 release focuses on server metadata and privilege administration instead." : {
+
+    },
+    "MySQL Host" : {
+
+    },
+    "Name" : {
+
+    },
+    "Name (optional)" : {
+
+    },
+    "Name used in message" : {
+
+    },
+    "Names are checked against the schema of the open connection. Quoted names and aliases you define in the query are never changed." : {
+
+    },
+    "New Connection" : {
+
+    },
+    "New Connection…" : {
+
+    },
+    "New Database" : {
+
+    },
+    "New Database…" : {
+
+    },
+    "New Favorite" : {
+
+    },
+    "New Favorite Group" : {
+
+    },
+    "New Group" : {
+
+    },
+    "New INSERT every %lld rows" : {
+
+    },
+    "New Monitor" : {
+
+    },
+    "New password" : {
+
+    },
+    "New query…" : {
+
+    },
+    "New Row" : {
+
+    },
+    "New Table" : {
+
+    },
+    "New table name" : {
+
+    },
+    "New Table Preview" : {
+
+    },
+    "New Table…" : {
+
+    },
+    "New User" : {
+
+    },
+    "Next page" : {
+
+    },
+    "No Account Selected" : {
+
+    },
+    "No certificate" : {
+
+    },
+    "No Database Selected" : {
+
+    },
+    "No databases listed" : {
+
+    },
+    "No executable SQL found." : {
+
+    },
+    "No favorites" : {
+
+    },
+    "No favorites in this group" : {
+
+    },
+    "No foreign-key relations." : {
+
+    },
+    "No grants" : {
+
+    },
+    "No History Yet" : {
+
+    },
+    "no login" : {
+
+    },
+    "No Matches" : {
+
+    },
+    "No Matching Objects" : {
+
+    },
+    "No Matching Tables" : {
+
+    },
+    "No Monitor Selected" : {
+
+    },
+    "No Monitors" : {
+
+    },
+    "No private key imported" : {
+
+    },
+    "No Results" : {
+
+    },
+    "No sessions match the current filter." : {
+
+    },
+    "No successful checks yet" : {
+
+    },
+    "No table or column matches “%@”." : {
+
+    },
+    "No Table Selected" : {
+
+    },
+    "No Tables" : {
+
+    },
+    "No triggers on this table." : {
+
+    },
+    "No variables match the current filter." : {
+
+    },
+    "None" : {
+
+    },
+    "Not Now" : {
+
+    },
+    "Not run yet" : {
+
+    },
+    "Notification" : {
+
+    },
+    "Notification limits (optional)" : {
+
+    },
+    "Notification text" : {
+
+    },
+    "Notifications" : {
+
+    },
+    "Notifications are turned off for DB Connect. Monitors will still run and record history, but they cannot alert you." : {
+
+    },
+    "Notify me when" : {
+
+    },
+    "NULL" : {
+
+    },
+    "NULL value" : {
+
+    },
+    "Objects" : {
+
+    },
+    "Off" : {
+
+    },
+    "OK" : {
+
+    },
+    "On" : {
+
+    },
+    "On duplicate key" : {
+
+    },
+    "ON UPDATE %@ · ON DELETE %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "ON UPDATE %1$@ · ON DELETE %2$@"
+          }
+        }
+      }
+    },
+    "One reading so far" : {
+
+    },
+    "Open ${monitor} in DB Connect" : {
+
+    },
+    "Open ${query} in DB Connect" : {
+
+    },
+    "Open Database" : {
+
+    },
+    "Open DB Connect at login" : {
+
+    },
+    "Open Monitor" : {
+
+    },
+    "Open Monitors" : {
+
+    },
+    "Open Saved Query" : {
+
+    },
+    "Opens a monitor and its latest status in DB Connect." : {
+
+    },
+    "Opens a saved query in the DB Connect SQL console." : {
+
+    },
+    "Operation" : {
+
+    },
+    "Page size" : {
+
+    },
+    "Password" : {
+
+    },
+    "Password (unchanged)" : {
+
+    },
+    "Passwords are stored in your iCloud Keychain, never in the synced connection record." : {
+
+    },
+    "Passwords, API keys, SSH secrets, and AWS access keys are stored separately in Keychain and are never written into the SwiftData connection record. Connection definitions are stored locally; optional sync is not required for the app to work. SQLite files and their access remain device-specific." : {
+
+    },
+    "Paused" : {
+
+    },
+    "Periodically checks open connections and reconnects automatically when saved credentials are available. Actions that need a connection can still recover a stale session." : {
+
+    },
+    "Pick a database to edit its privileges for this account." : {
+
+    },
+    "Pick a database to edit one table’s privileges for this account." : {
+
+    },
+    "Pick a table to edit its single-table privileges for this account." : {
+
+    },
+    "Pinned certificate" : {
+
+    },
+    "Pinned certificate PEM" : {
+
+    },
+    "Pipe (|)" : {
+
+    },
+    "Port" : {
+
+    },
+    "Preferred" : {
+
+    },
+    "Preparing DB Connect" : {
+
+    },
+    "Preparing DB Connect…" : {
+
+    },
+    "Preserve current auto-increment value" : {
+
+    },
+    "Press Return or click away to stage this edit" : {
+
+    },
+    "Preview" : {
+
+    },
+    "Previous page" : {
+
+    },
+    "Primary key" : {
+
+    },
+    "Privacy Policy" : {
+
+    },
+    "Private Key" : {
+
+    },
+    "Private key ready" : {
+
+    },
+    "Private key stored in Keychain" : {
+
+    },
+    "Privileges" : {
+
+    },
+    "Privileges granted on **%@** (`%@.*`)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Privileges granted on **%1$@** (`%2$@.*`)."
+          }
+        }
+      }
+    },
+    "Privileges granted on **%@** (`%@.%@`)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Privileges granted on **%1$@** (`%2$@.%3$@`)."
+          }
+        }
+      }
+    },
+    "Privileges granted on **all databases** (`*.*`). Administrative and replication privileges are server-wide and can only be set here." : {
+
+    },
+    "Privileges…" : {
+
+    },
+    "Project" : {
+
+    },
+    "Project URL" : {
+
+    },
+    "Queries" : {
+
+    },
+    "Query" : {
+
+    },
+    "Query Actions" : {
+
+    },
+    "Query Collection" : {
+
+    },
+    "Query Failed" : {
+
+    },
+    "Query Library" : {
+
+    },
+    "Query name" : {
+
+    },
+    "Quick Connect" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Connect"
+          }
+        }
+      }
+    },
+    "Quiet from" : {
+
+    },
+    "Quiet until" : {
+
+    },
+    "Quit DB Connect" : {
+
+    },
+    "Range" : {
+
+    },
+    "Read-only" : {
+
+    },
+    "Read-only blocks all writes on this connection, regardless of database permissions." : {
+
+    },
+    "Readings" : {
+
+    },
+    "Reconnect" : {
+
+    },
+    "Record query history" : {
+
+    },
+    "Refresh" : {
+
+    },
+    "Refresh table" : {
+
+    },
+    "Refresh Table" : {
+
+    },
+    "Relations" : {
+
+    },
+    "Reload" : {
+
+    },
+    "Reload Schema" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Remove “%@”?" : {
+
+    },
+    "Remove Group" : {
+
+    },
+    "Remove Group…" : {
+
+    },
+    "Rename" : {
+
+    },
+    "Rename Favorite Group" : {
+
+    },
+    "Rename Group" : {
+
+    },
+    "Rename Group…" : {
+
+    },
+    "Rename Query" : {
+
+    },
+    "Rename…" : {
+
+    },
+    "Reorder" : {
+
+    },
+    "Repeat alerts" : {
+
+    },
+    "Repeat at an interval" : {
+
+    },
+    "Repeat every" : {
+
+    },
+    "Replace…" : {
+
+    },
+    "Required" : {
+
+    },
+    "Reset Column Widths" : {
+
+    },
+    "Restore Purchases" : {
+
+    },
+    "Result column (optional)" : {
+
+    },
+    "Results appear here. Press %@ %@ to run the query." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Results appear here. Press %1$@ %2$@ to run the query."
+          }
+        }
+      }
+    },
+    "Results appear here. Press Command Return to run the query." : {
+
+    },
+    "Retry" : {
+
+    },
+    "Reuse with snippets and triggers" : {
+
+    },
+    "Revert" : {
+
+    },
+    "Review %lld" : {
+
+    },
+    "Review and apply unsaved changes" : {
+
+    },
+    "Review Changes" : {
+
+    },
+    "Revoke" : {
+
+    },
+    "Row Height" : {
+
+    },
+    "Row number" : {
+
+    },
+    "Rows per Page" : {
+
+    },
+    "Run" : {
+
+    },
+    "Run a Query" : {
+
+    },
+    "Run every day at" : {
+
+    },
+    "Run Monitors Now" : {
+
+    },
+    "Run on %@" : {
+
+    },
+    "Run query" : {
+
+    },
+    "Run Query" : {
+
+    },
+    "Run the SQL in the editor" : {
+
+    },
+    "Running" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save a statement as a favorite and give it a tab trigger. Type the trigger in the editor and press Tab to insert the whole query." : {
+
+    },
+    "Save Current Query" : {
+
+    },
+    "Save Current SQL as Favorite" : {
+
+    },
+    "Save Favorite" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save Favorite"
+          }
+        }
+      }
+    },
+    "Save Queries You Run Often" : {
+
+    },
+    "Save Query…" : {
+
+    },
+    "Saved query" : {
+
+    },
+    "Saved Query" : {
+
+    },
+    "Saved to %@" : {
+
+    },
+    "Schedule" : {
+
+    },
+    "Scheduled checks run while DB Connect is open. Opening it at login keeps monitoring available after you sign in; quitting the app stops checks." : {
+
+    },
+    "Schema" : {
+
+    },
+    "Scope" : {
+
+    },
+    "Search all columns" : {
+
+    },
+    "Search favorites" : {
+
+    },
+    "Search Favorites" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search Favorites"
+          }
+        }
+      }
+    },
+    "Secret Access Key" : {
+
+    },
+    "Secret Access Key (unchanged)" : {
+
+    },
+    "See the latest monitor results without switching to DB Connect." : {
+
+    },
+    "SELECT * FROM …" : {
+
+    },
+    "Select a monitor to edit it, or create a new one." : {
+
+    },
+    "Select All" : {
+
+    },
+    "Select Visible" : {
+
+    },
+    "Semicolon (;)" : {
+
+    },
+    "Server" : {
+
+    },
+    "Session" : {
+
+    },
+    "Session Token (optional)" : {
+
+    },
+    "Set Favorite Tag" : {
+
+    },
+    "Set Tag…" : {
+
+    },
+    "SHA-256 fingerprint" : {
+
+    },
+    "Shell-command favorites are intentionally not included in this release. DB Connect’s favorites sync through app data and are designed to be safe to expand as plain text; executing local shell commands from those snippets would introduce a separate trust, permission, and audit model that the app does not yet explain well enough." : {
+
+    },
+    "Show %lld More" : {
+
+    },
+    "Show monitor status in the menu bar" : {
+
+    },
+    "Show only rows that match a column condition" : {
+
+    },
+    "Show Table List" : {
+
+    },
+    "Show the table list" : {
+
+    },
+    "Showing the first %@ rows. Add a LIMIT to see a specific part of the result." : {
+
+    },
+    "Signing in to Vault. Cancel button available." : {
+
+    },
+    "Signing in to Vault…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signing in to Vault…"
+          }
+        }
+      }
+    },
+    "Single quote (')" : {
+
+    },
+    "Socket path" : {
+
+    },
+    "Sort by %@" : {
+
+    },
+    "Source" : {
+
+    },
+    "SQL" : {
+
+    },
+    "SQL Console" : {
+
+    },
+    "SQL dump" : {
+
+    },
+    "SQL options" : {
+
+    },
+    "SSH Agent" : {
+
+    },
+    "SSH Authentication" : {
+
+    },
+    "SSH Host" : {
+
+    },
+    "SSH Password" : {
+
+    },
+    "SSH Password (unchanged)" : {
+
+    },
+    "SSH Port" : {
+
+    },
+    "SSH Tunnel" : {
+
+    },
+    "SSH Username" : {
+
+    },
+    "State" : {
+
+    },
+    "Statement %lld · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Statement %1$lld · %2$@"
+          }
+        }
+      }
+    },
+    "Status on %@" : {
+
+    },
+    "Step %lld: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Step %1$lld: %2$@"
+          }
+        }
+      }
+    },
+    "Stop at the first error" : {
+
+    },
+    "Structure" : {
+
+    },
+    "Structure  Content  Drop" : {
+
+    },
+    "Suggest table and column names" : {
+
+    },
+    "Superuser" : {
+
+    },
+    "Switch to another database on this server" : {
+
+    },
+    "Tab" : {
+
+    },
+    "Tab trigger" : {
+
+    },
+    "Table" : {
+
+    },
+    "Table and Column Names" : {
+
+    },
+    "Table Details" : {
+
+    },
+    "Table Details…" : {
+
+    },
+    "Tables" : {
+
+    },
+    "Tag" : {
+
+    },
+    "TCP" : {
+
+    },
+    "Temporarily disable foreign-key checks" : {
+
+    },
+    "The account may only connect from this host. Note that a dynamic home IP will change." : {
+
+    },
+    "The database is stored with the query so the monitor selects it before running — a server connection has no database of its own to fall back on." : {
+
+    },
+    "The new database starts empty. You can switch to it and add tables straight away." : {
+
+    },
+    "The new password is sent as part of a SQL statement, so it may appear in the server's query log." : {
+
+    },
+    "The new password is sent to the server as part of a SQL statement, so it may appear in the server's query log." : {
+
+    },
+    "The preview is intentionally partial so very large dumps stay responsive before import." : {
+
+    },
+    "These run in a single transaction — if any statement fails, none of them are applied." : {
+
+    },
+    "This account cannot create users" : {
+
+    },
+    "This account is not allowed to manage users" : {
+
+    },
+    "This account may connect from any host." : {
+
+    },
+    "This connection has no transactions. Changes are sent one at a time, so a failure part-way through leaves earlier changes applied." : {
+
+    },
+    "This connection is read-only or does not support SQL writes." : {
+
+    },
+    "This database contains no tables." : {
+
+    },
+    "This deletes the favorite only. Saved queries, monitors, and database objects are untouched." : {
+
+    },
+    "This monitor is off on this device." : {
+
+    },
+    "This permanently removes “%@” and all its privileges. It cannot be undone." : {
+
+    },
+    "This permanently removes the account and all its privileges. It cannot be undone." : {
+
+    },
+    "This reloads MySQL or MariaDB grant tables immediately. Use it when account or privilege changes made outside DB Connect should take effect now." : {
+
+    },
+    "This removes the history for %@. Saved queries and favorites are untouched." : {
+
+    },
+    "This removes the monitor and its recorded history on every device. The saved query it watches is untouched." : {
+
+    },
+    "This removes the saved connection and its stored credentials. The database itself is untouched." : {
+
+    },
+    "This row has unsaved changes" : {
+
+    },
+    "This tells MySQL or MariaDB to reload grant tables immediately. Use it when account or privilege changes made outside DB Connect need to take effect now." : {
+
+    },
+    "Threshold" : {
+
+    },
+    "Time" : {
+
+    },
+    "Title" : {
+
+    },
+    "Transport" : {
+
+    },
+    "Transport Security" : {
+
+    },
+    "Treat empty fields as NULL" : {
+
+    },
+    "Triggers" : {
+
+    },
+    "Try a different table or schema name." : {
+
+    },
+    "Try a different table, view, or schema name." : {
+
+    },
+    "Try Again" : {
+
+    },
+    "Turn ${monitors} ${isEnabled} on this device" : {
+
+    },
+    "Turn Monitors On or Off" : {
+
+    },
+    "Turn on a monitor to start checking it on this device." : {
+
+    },
+    "Turned %@ %lld monitor%@ on this device." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Turned %1$@ %2$lld monitor%3$@ on this device."
+          }
+        }
+      }
+    },
+    "Turns DB Connect monitors on or off on this device. Other devices keep their own setting." : {
+
+    },
+    "Type" : {
+
+    },
+    "Type the trigger in the SQL editor and press Tab to expand this favorite." : {
+
+    },
+    "Uncheck All" : {
+
+    },
+    "Underline names that don't match the schema" : {
+
+    },
+    "Unique" : {
+
+    },
+    "Unit" : {
+
+    },
+    "Unknown total" : {
+
+    },
+    "Unlock DB Connect Pro" : {
+
+    },
+    "Unmapped database columns keep their default value." : {
+
+    },
+    "Unsaved changes" : {
+
+    },
+    "Use the anon or service role key. It is stored in Keychain, never in the local database." : {
+
+    },
+    "Use the filesystem path published by the local MySQL or MariaDB server, for example `/tmp/mysql.sock`. Socket connections stay local to this Mac and do not use TLS." : {
+
+    },
+    "Use the RDS or Aurora endpoint hostname, not a custom DNS alias. IAM tokens are valid for 15 minutes, but only for the login handshake; open sessions stay connected normally after authentication." : {
+
+    },
+    "User" : {
+
+    },
+    "User name" : {
+
+    },
+    "Username" : {
+
+    },
+    "Users" : {
+
+    },
+    "Value" : {
+
+    },
+    "Vault OIDC" : {
+
+    },
+    "Vault Server URL" : {
+
+    },
+    "Vault signs you in in the system browser and leases a short-lived MySQL password. The lease is never saved in the favorite." : {
+
+    },
+    "Vault- or OIDC-issued ephemeral database credentials are not shipped yet. They need a broader account-provider model, interactive browser or device-code flows, token and role selection UX, and clear trust boundaries around refresh in foreground windows, monitors, and widgets. The connection model now has typed authentication extension points so those providers can be added without redesigning every driver or form." : {
+
+    },
+    "View" : {
+
+    },
+    "Watch a saved query and get notified when its result changes." : {
+
+    },
+    "Watch Monitors from the Menu Bar" : {
+
+    },
+    "What’s New" : {
+
+    },
+    "When importing into a new table, DB Connect infers a starter column list from the first 200 data rows so the destination is visible before you commit. Existing-table imports keep explicit column mapping so defaults, generated columns, and conflict handling stay under your control." : {
+
+    },
+    "Workspace" : {
+
+    },
+    "Wrap Cell Text" : {
+
+    },
+    "Wrap data in a transaction" : {
+
+    },
+    "Wrap script in a transaction" : {
+
+    },
+    "Writable SQLite connections also need access to the containing folder so SQLite can open its WAL, SHM, or rollback-journal files. If this connection came from an older version or another device, grant both file and folder access here." : {
+
+    },
+    "Write binary fields as hexadecimal" : {
+
+    },
+    "Write my own…" : {
+
+    },
+    "Your first connection and all of its database tools remain available without Pro." : {
+
+    },
+    "Your first connection is free. Add a second server or connection by unlocking Pro." : {
+
+    }
+  },
+  "version" : "1.0"
+}

@@ -27,6 +27,13 @@ final class Connection {
     var socketPath: String = ""
     var authenticationMode: String = DatabaseAuthenticationMode.password.rawValue
     var awsRegion: String = ""
+    /// Non-secret Vault OIDC/database-role configuration. Vault tokens and leased DB passwords
+    /// stay in Keychain/runtime memory and are never part of this model.
+    var vaultServerURL: String = ""
+    var vaultAuthMount: String = "oidc"
+    var vaultRole: String = ""
+    var vaultDatabaseMount: String = "database"
+    var vaultDatabaseRole: String = ""
     var sshTunnelEnabled: Bool = false
     var sshHost: String = ""
     var sshPort: Int = 22
@@ -43,6 +50,15 @@ final class Connection {
     /// explain why it is inactive on another device instead of just failing to connect.
     var fileAccessOwnerDeviceID: String?
     var fileAccessOwnerDeviceName: String?
+    /// Optional favorite metadata. These fields are additive/defaulted for existing CloudKit rows.
+    var favoriteColor: String = FavoriteColor.none.rawValue
+    var favoriteTag: String = ""
+    /// Groups are separate records so an empty group can exist and renaming does not require
+    /// rewriting every connection. The UUID is intentionally not a SwiftData relationship:
+    /// CloudKit can merge records independently and removing a group must never delete a favorite.
+    var favoriteGroupID: UUID?
+    /// Manual order within the group. Zero means legacy/unassigned ordering.
+    var favoriteOrder: Int = 0
     var sortOrder: Int = 0
     var createdAt: Date = Date.now
 
@@ -75,7 +91,8 @@ final class Connection {
             socketPath: transport == .unixSocket ? socketPath : "",
             authentication: DatabaseAuthenticationConfiguration(
                 mode: DatabaseAuthenticationMode(rawValue: authenticationMode) ?? .password,
-                awsRegion: awsRegion
+                awsRegion: awsRegion,
+                vault: vaultAuthenticationConfiguration
             ),
             sshTunnel: sshTunnelEnabled
                 ? SSHTunnelConfiguration(
@@ -90,6 +107,43 @@ final class Connection {
 
     var transport: ConnectionTransportMode {
         ConnectionTransportMode(rawValue: transportMode) ?? .tcp
+    }
+
+    var vaultAuthenticationConfiguration: VaultAuthenticationConfiguration? {
+        guard DatabaseAuthenticationMode(rawValue: authenticationMode) == .vaultOIDC else {
+            return nil
+        }
+        guard let serverURL = URL(string: vaultServerURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              !vaultRole.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !vaultDatabaseRole.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return VaultAuthenticationConfiguration(
+            serverURL: serverURL,
+            authMount: vaultAuthMount,
+            role: vaultRole,
+            databaseMount: vaultDatabaseMount,
+            databaseRole: vaultDatabaseRole
+        )
+    }
+
+    var favoriteColorValue: FavoriteColor {
+        FavoriteColor(rawValue: favoriteColor) ?? .none
+    }
+}
+
+/// A CloudKit-compatible favorite folder. Connections refer to it by UUID instead of a deleting
+/// relationship, so deleting a group simply unassigns its connections.
+@Model
+final class ConnectionFavoriteGroup {
+    var id: UUID = UUID()
+    var name: String = ""
+    var sortOrder: Int = 0
+    var createdAt: Date = Date.now
+
+    init(name: String, sortOrder: Int = 0) {
+        self.name = name
+        self.sortOrder = sortOrder
     }
 }
 

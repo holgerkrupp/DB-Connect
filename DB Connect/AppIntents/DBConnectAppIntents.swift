@@ -186,7 +186,9 @@ struct RunMonitorsIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let container = DB_ConnectApp.appModelContainer
+        guard let container = await DB_ConnectApp.runtime.loadIfNeeded() else {
+            throw IntentRuntimeError.storeUnavailable
+        }
         let summary: MonitorRunSummary
         if #available(iOS 27.0, macOS 27.0, *) {
             summary = try await runWithExtendedTime(container)
@@ -236,7 +238,7 @@ struct SetMonitorsEnabledIntent: AppIntent {
     static let title: LocalizedStringResource = "Turn Monitors On or Off"
     static let description = IntentDescription("Turns DB Connect monitors on or off on this device. Other devices keep their own setting.")
     static let supportedModes: IntentModes = [.background]
-    // Writes to the CloudKit-backed store, which only the app process opens.
+    // Writes to the shared local SwiftData store through the app runtime.
     static var allowedExecutionTargets: ExecutionTargets { .main }
 
     // Identifiers are all this needs: it edits the SwiftData models directly, so resolving each
@@ -251,7 +253,9 @@ struct SetMonitorsEnabledIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        let container = DB_ConnectApp.appModelContainer
+        guard let container = await DB_ConnectApp.runtime.loadIfNeeded() else {
+            throw IntentRuntimeError.storeUnavailable
+        }
         let context = ModelContext(container)
         let ids = monitors.identifiers
         let matches = try context.fetch(FetchDescriptor<Monitor>(predicate: #Predicate { ids.contains($0.id) }))
@@ -265,6 +269,14 @@ struct SetMonitorsEnabledIntent: AppIntent {
 
         let count = matches.count
         return .result(dialog: "Turned \(isEnabled ? "on" : "off") \(count) monitor\(count == 1 ? "" : "s") on this device.")
+    }
+}
+
+private enum IntentRuntimeError: LocalizedError {
+    case storeUnavailable
+
+    var errorDescription: String? {
+        "DB Connect could not open its local data store."
     }
 }
 

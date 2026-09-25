@@ -57,6 +57,19 @@ nonisolated enum ConnectionRuntimeSecretResolver {
             var resolved = secret ?? Secret()
             resolved.password = token
             return resolved
+        case .vaultOIDC:
+            guard config.driverID == DriverIdentity.mysql else {
+                throw DatabaseError.unsupported("Vault OIDC authentication is currently available only for MySQL connections.")
+            }
+            guard config.socketPath.isEmpty else {
+                throw DatabaseError.unsupported("Vault OIDC authentication is not available for local socket connections.")
+            }
+            // The launcher/editor obtains a fresh lease immediately before connecting and
+            // passes it as a runtime Secret. This resolver never fetches or persists Vault data.
+            guard let password = secret?.password, !password.isEmpty else {
+                throw DatabaseError.missingCredentials
+            }
+            return secret
         }
     }
 }

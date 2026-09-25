@@ -44,6 +44,11 @@ struct ConnectionFormView: View {
     @State private var awsAccessKeyID = ""
     @State private var awsSecretAccessKey = ""
     @State private var awsSessionToken = ""
+    @State private var vaultServerURL = ""
+    @State private var vaultAuthMount = "oidc"
+    @State private var vaultRole = ""
+    @State private var vaultDatabaseMount = "database"
+    @State private var vaultDatabaseRole = ""
 
     @State private var sshTunnelEnabled = false
     @State private var sshHost = ""
@@ -72,6 +77,57 @@ struct ConnectionFormView: View {
         }
     }
 
+    /// The editor still owns the controls that are specific to this surface, but domain
+    /// validation and persistence mapping are centralized in these value drafts.
+    private var currentDraft: ConnectionDraft {
+        var draft = ConnectionDraft()
+        draft.name = name
+        draft.driverID = driverID
+        draft.host = host
+        draft.port = port
+        draft.database = database
+        draft.username = username
+        draft.isReadOnly = isReadOnly
+        draft.tlsMode = tlsMode
+        draft.certificatePEM = certificatePEM
+        draft.certificateFingerprint = certificateFingerprint
+        draft.bookmarkData = bookmarkData
+        draft.containerBookmarkData = containerBookmarkData
+        draft.fileAccessOwnerDeviceID = fileAccessOwnerDeviceID
+        draft.fileAccessOwnerDeviceName = fileAccessOwnerDeviceName
+        draft.transportMode = transportMode
+        draft.socketPath = socketPath
+        draft.authenticationMode = authenticationMode
+        draft.awsRegion = awsRegion
+        draft.vaultServerURL = vaultServerURL
+        draft.vaultAuthMount = vaultAuthMount
+        draft.vaultRole = vaultRole
+        draft.vaultDatabaseMount = vaultDatabaseMount
+        draft.vaultDatabaseRole = vaultDatabaseRole
+        draft.sshTunnelEnabled = sshTunnelEnabled
+        draft.sshHost = sshHost
+        draft.sshPort = sshPort
+        draft.sshUsername = sshUsername
+        draft.sshAuthenticationMode = sshAuthenticationMode
+        return draft
+    }
+
+    private var currentSecretDraft: ConnectionSecretDraft {
+        var draft = ConnectionSecretDraft()
+        draft.password = password
+        draft.awsAccessKeyID = awsAccessKeyID
+        draft.awsSecretAccessKey = awsSecretAccessKey
+        draft.awsSessionToken = awsSessionToken
+        draft.sshPassword = sshPassword
+        draft.sshPrivateKey = sshPrivateKey
+        draft.sshPassphrase = sshPassphrase
+        draft.hasStoredDatabasePassword = hasStoredDatabasePassword
+        draft.hasStoredAWSCredentials = hasStoredAWSCredentials
+        draft.hasStoredSSHPassword = hasStoredSSHPassword
+        draft.hasStoredSSHPrivateKey = hasStoredSSHPrivateKey
+        return draft
+    }
+
     private var style: DriverRegistry.ConnectionStyle { DriverRegistry.style(for: driverID) }
     private var isFileBased: Bool { style == .file }
     private var supportsSocketConnections: Bool { driverID == MySQLDriver.id }
@@ -86,55 +142,11 @@ struct ConnectionFormView: View {
 
     private var sqliteFileAccessIssue: String? {
         guard isFileBased else { return nil }
-        #if os(macOS)
-        return SQLiteFileAccessRequirement.issue(
-            path: database,
-            hasFileBookmark: bookmarkData != nil,
-            hasContainerBookmark: containerBookmarkData != nil,
-            isReadOnly: isReadOnly
-        )
-        #else
-        return database.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Choose a SQLite database file."
-            : nil
-        #endif
+        return currentDraft.validationIssue(secrets: currentSecretDraft)
     }
 
     private var canSave: Bool {
-        switch style {
-        case .file:
-            return sqliteFileAccessIssue == nil
-        case .server:
-            if transportMode == .unixSocket {
-                guard !socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-            } else {
-                guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-            }
-
-            if authenticationMode == .awsIAM {
-                let hasTyped = !awsAccessKeyID.isEmpty && !awsSecretAccessKey.isEmpty
-                guard !awsRegion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-                guard hasTyped || hasStoredAWSCredentials else { return false }
-            }
-
-            if sshTunnelEnabled {
-                guard !sshHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      !sshUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                else { return false }
-                switch sshAuthenticationMode {
-                case .agent:
-                    break
-                case .password:
-                    guard !sshPassword.isEmpty || hasStoredSSHPassword else { return false }
-                case .privateKey:
-                    guard !sshPrivateKey.isEmpty || hasStoredSSHPrivateKey else { return false }
-                }
-            }
-
-            return true
-        case .httpEndpoint:
-            return !host.isEmpty && (!password.isEmpty || hasStoredDatabasePassword)
-        }
+        currentDraft.canSave(secrets: currentSecretDraft)
     }
 
     private var bookmarkCreationOptions: URL.BookmarkCreationOptions {
@@ -216,25 +228,14 @@ struct ConnectionFormView: View {
         #endif
         .onAppear(perform: populateFromExisting)
         .onChange(of: driverID) { _, newValue in
-            let defaults = DriverRegistry.all.map { DriverRegistry.defaultPort(for: type(of: $0).id) }
-            if port == 0 || defaults.contains(port) {
-                port = DriverRegistry.defaultPort(for: newValue)
-            }
-            if newValue != MySQLDriver.id {
-                transportMode = .tcp
-                socketPath = ""
-                authenticationMode = .password
-            }
-            if style != .server {
-                sshTunnelEnabled = false
-            }
+            var draft = currentDraft
+            draft.didChangeDriver(to: newValue)
+            apply(draft)
         }
         .onChange(of: transportMode) { _, newValue in
-            if newValue == .unixSocket {
-                sshTunnelEnabled = false
-                tlsMode = .disabled
-                authenticationMode = .password
-            }
+            var draft = currentDraft
+            draft.didChangeTransport(to: newValue)
+            apply(draft)
         }
     }
 
@@ -467,7 +468,7 @@ struct ConnectionFormView: View {
         } footer: {
             Text(hasStoredDatabasePassword
                  ? "A key is stored in your iCloud Keychain. Leave this blank to keep it."
-                 : "Use the anon or service role key. It is stored in your iCloud Keychain, never in the synced database.")
+                 : "Use the anon or service role key. It is stored in Keychain, never in the local database.")
         }
     }
 
@@ -504,36 +505,49 @@ struct ConnectionFormView: View {
 
     private func populateFromExisting() {
         guard let existing else { return }
-        name = existing.name
-        driverID = existing.driverID
-        host = existing.host
-        port = existing.port
-        database = existing.database
-        username = existing.username
-        isReadOnly = existing.isReadOnly
-        tlsMode = TLSMode(rawValue: existing.tlsMode) ?? .required
-        certificatePEM = existing.pinnedCertificatePEM ?? ""
-        certificateFingerprint = existing.certificateFingerprint
-        transportMode = existing.transport
-        socketPath = existing.socketPath
-        authenticationMode = DatabaseAuthenticationMode(rawValue: existing.authenticationMode) ?? .password
-        awsRegion = existing.awsRegion
-        sshTunnelEnabled = existing.sshTunnelEnabled
-        sshHost = existing.sshHost
-        sshPort = existing.sshPort
-        sshUsername = existing.sshUsername
-        sshAuthenticationMode = SSHTunnelAuthenticationMode(rawValue: existing.sshAuthenticationMode) ?? .agent
-        bookmarkData = existing.fileBookmark
-        containerBookmarkData = existing.fileContainerBookmark
-        fileAccessOwnerDeviceID = existing.fileAccessOwnerDeviceID
-        fileAccessOwnerDeviceName = existing.fileAccessOwnerDeviceName
+        apply(ConnectionDraft(connection: existing))
 
         let storedSecret = try? KeychainSecretStore().secret(for: existing.id)
-        hasStoredDatabasePassword = !(storedSecret?.password ?? storedSecret?.apiToken ?? "").isEmpty
-        hasStoredAWSCredentials = !(storedSecret?.awsAccessKeyID ?? "").isEmpty && !(storedSecret?.awsSecretAccessKey ?? "").isEmpty
-        hasStoredSSHPassword = !(storedSecret?.sshPassword ?? "").isEmpty
-        hasStoredSSHPrivateKey = !(storedSecret?.sshPrivateKey ?? "").isEmpty
+        apply(ConnectionSecretDraft(stored: storedSecret))
         refreshSQLiteBookmarkIfPossible()
+    }
+
+    private func apply(_ draft: ConnectionDraft) {
+        name = draft.name
+        driverID = draft.driverID
+        host = draft.host
+        port = draft.port
+        database = draft.database
+        username = draft.username
+        isReadOnly = draft.isReadOnly
+        tlsMode = draft.tlsMode
+        certificatePEM = draft.certificatePEM
+        certificateFingerprint = draft.certificateFingerprint
+        transportMode = draft.transportMode
+        socketPath = draft.socketPath
+        authenticationMode = draft.authenticationMode
+        awsRegion = draft.awsRegion
+        vaultServerURL = draft.vaultServerURL
+        vaultAuthMount = draft.vaultAuthMount
+        vaultRole = draft.vaultRole
+        vaultDatabaseMount = draft.vaultDatabaseMount
+        vaultDatabaseRole = draft.vaultDatabaseRole
+        sshTunnelEnabled = draft.sshTunnelEnabled
+        sshHost = draft.sshHost
+        sshPort = draft.sshPort
+        sshUsername = draft.sshUsername
+        sshAuthenticationMode = draft.sshAuthenticationMode
+        bookmarkData = draft.bookmarkData
+        containerBookmarkData = draft.containerBookmarkData
+        fileAccessOwnerDeviceID = draft.fileAccessOwnerDeviceID
+        fileAccessOwnerDeviceName = draft.fileAccessOwnerDeviceName
+    }
+
+    private func apply(_ draft: ConnectionSecretDraft) {
+        hasStoredDatabasePassword = draft.hasStoredDatabasePassword
+        hasStoredAWSCredentials = draft.hasStoredAWSCredentials
+        hasStoredSSHPassword = draft.hasStoredSSHPassword
+        hasStoredSSHPrivateKey = draft.hasStoredSSHPrivateKey
     }
 
     private func importSQLiteFile(_ result: Result<URL, Error>) {
@@ -581,75 +595,38 @@ struct ConnectionFormView: View {
         }
 
         let connection = existing ?? Connection(name: name, driverID: driverID)
-        connection.name = name
-        connection.driverID = driverID
-        connection.host = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        connection.port = port
-        connection.database = database.trimmingCharacters(in: .whitespacesAndNewlines)
-        connection.username = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        connection.isReadOnly = isReadOnly
-        connection.tlsMode = tlsMode.rawValue
-        connection.pinnedCertificatePEM = certificatePEM.isEmpty ? nil : certificatePEM
-        connection.certificateFingerprint = certificateFingerprint
-        connection.transportMode = transportMode.rawValue
-        connection.socketPath = transportMode == .unixSocket ? socketPath.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        connection.authenticationMode = authenticationMode.rawValue
-        connection.awsRegion = authenticationMode == .awsIAM ? awsRegion.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        connection.sshTunnelEnabled = sshTunnelEnabled
-        connection.sshHost = sshTunnelEnabled ? sshHost.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        connection.sshPort = sshTunnelEnabled ? sshPort : 22
-        connection.sshUsername = sshTunnelEnabled ? sshUsername.trimmingCharacters(in: .whitespacesAndNewlines) : ""
-        connection.sshAuthenticationMode = sshTunnelEnabled ? sshAuthenticationMode.rawValue : SSHTunnelAuthenticationMode.agent.rawValue
-        connection.fileBookmark = bookmarkData
-        connection.fileContainerBookmark = containerBookmarkData
-        connection.fileAccessOwnerDeviceID = fileAccessOwnerDeviceID
-        connection.fileAccessOwnerDeviceName = fileAccessOwnerDeviceName
+        let draft = currentDraft.normalized
+        draft.apply(to: connection)
 
         do {
-            var secret = (try? KeychainSecretStore().secret(for: connection.id)) ?? Secret()
-            switch style {
+            let existingSecret = try? KeychainSecretStore().secret(for: connection.id)
+            let secretDraft = currentSecretDraft
+            var secret = secretDraft.merged(with: existingSecret, authenticationMode: draft.authenticationMode)
+            switch draft.style {
             case .file:
-                break
+                secret = existingSecret ?? Secret()
             case .httpEndpoint:
-                if !password.isEmpty {
-                    secret.apiToken = password
-                }
+                if password.isEmpty { secret.apiToken = existingSecret?.apiToken }
             case .server:
-                if authenticationMode == .password, !password.isEmpty {
-                    secret.password = password
+                if authenticationMode != .password, authenticationMode != .vaultOIDC {
+                    secret.password = existingSecret?.password
                 }
-                if authenticationMode == .awsIAM {
-                    if !awsAccessKeyID.isEmpty {
-                        secret.awsAccessKeyID = awsAccessKeyID.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                    if !awsSecretAccessKey.isEmpty {
-                        secret.awsSecretAccessKey = awsSecretAccessKey
-                    }
-                    if !awsSessionToken.isEmpty {
-                        secret.awsSessionToken = awsSessionToken
-                    }
+                if authenticationMode != .awsIAM {
+                    secret.awsAccessKeyID = existingSecret?.awsAccessKeyID
+                    secret.awsSecretAccessKey = existingSecret?.awsSecretAccessKey
+                    secret.awsSessionToken = existingSecret?.awsSessionToken
                 }
-                if sshTunnelEnabled {
-                    switch sshAuthenticationMode {
-                    case .agent:
-                        break
-                    case .password:
-                        if !sshPassword.isEmpty {
-                            secret.sshPassword = sshPassword
-                        }
-                    case .privateKey:
-                        if !sshPrivateKey.isEmpty {
-                            secret.sshPrivateKey = sshPrivateKey
-                        }
-                        if !sshPassphrase.isEmpty {
-                            secret.sshPassphrase = sshPassphrase
-                        }
-                    }
+                if !sshTunnelEnabled {
+                    secret.sshPassword = existingSecret?.sshPassword
+                    secret.sshPrivateKey = existingSecret?.sshPrivateKey
+                    secret.sshPassphrase = existingSecret?.sshPassphrase
                 }
             }
 
             if secret.hasPersistedValue {
                 try KeychainSecretStore().save(secret, for: connection.id)
+            } else if draft.authenticationMode == .vaultOIDC {
+                try KeychainSecretStore().delete(for: connection.id)
             }
             if existing == nil {
                 modelContext.insert(connection)

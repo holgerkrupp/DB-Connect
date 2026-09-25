@@ -25,8 +25,8 @@
 		7E4614A5BFE5855B67020A8F /* PredicateBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4363D64E0E410F02BB8A2E71 /* PredicateBuilder.swift */; };
 		8020EB9EEDE9A0BF70397FE4 /* MutationBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949291B46B48D649AE2EF9BF /* MutationBuilderTests.swift */; };
 		9EF7320BEF6D68E3AC9D6E8A /* SchemaAdmin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */; };
-		A11CE0010000000000000001 /* MonitorRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0010000000000000002 /* MonitorRule.swift */; };
 		A0805BCDD6AC9AB9F755BD4B /* SQLiteDriver+Schema.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27C05E8A43FF8690446B8DC /* SQLiteDriver+Schema.swift */; };
+		A11CE0010000000000000001 /* MonitorRule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0010000000000000002 /* MonitorRule.swift */; };
 		A35DC6B1B0D1BF79536100A6 /* SQLIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61EAF479CB1543034FD5A4E1 /* SQLIdentifier.swift */; };
 		B786928654AC56020E101991 /* PredicateBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB0036D0C5F50ED9A489A930 /* PredicateBuilderTests.swift */; };
 		C2CDC6908277F8C44709D920 /* Descriptors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5DCC49BCEFB025CA8010D2 /* Descriptors.swift */; };
@@ -38,6 +38,13 @@
 		DBC0FFEE10000001 /* DB Connect Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DBC0FFEE10000002 /* DB Connect Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		E39C3D2502C447F5A9E2F220 /* RDSIAMAuthToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = E39C3D2402C447F5A9E2F220 /* RDSIAMAuthToken.swift */; };
 		F7CB3A8737599AF5C9BE2994 /* DatabaseUser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11085DF1B1E6FAEF6989B254 /* DatabaseUser.swift */; };
+		FAV0B1C2D3E4F50617283940 /* FavoriteOrganizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAV0B1C2D3E4F50617283941 /* FavoriteOrganizationTests.swift */; };
+		FAV0B1C2D3E4F50617283942 /* FavoriteOrganization.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAV0B1C2D3E4F50617283943 /* FavoriteOrganization.swift */; };
+		LST00000000000000000002 /* MacLauncherState.swift in Sources */ = {isa = PBXBuildFile; fileRef = LST00000000000000000001 /* MacLauncherState.swift */; };
+		VLT00000000000000000001 /* VaultAuthentication.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLT00000000000000000011 /* VaultAuthentication.swift */; };
+		VLT00000000000000000002 /* VaultHTTPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLT00000000000000000012 /* VaultHTTPClient.swift */; };
+		VLT00000000000000000003 /* VaultTokenKeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLT00000000000000000013 /* VaultTokenKeychainStore.swift */; };
+		VLT00000000000000000004 /* VaultAuthenticationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = VLT00000000000000000014 /* VaultAuthenticationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,7 +100,14 @@
 		DBC0FFEE10000002 /* DB Connect Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "DB Connect Widgets.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E2C1B8E9B54EE777A0377C94 /* RowFilter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RowFilter.swift; path = "DB Connect/Core/RowFilter.swift"; sourceTree = "<group>"; };
 		E39C3D2402C447F5A9E2F220 /* RDSIAMAuthToken.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RDSIAMAuthToken.swift; path = "DB Connect/Core/RDSIAMAuthToken.swift"; sourceTree = "<group>"; };
+		FAV0B1C2D3E4F50617283941 /* FavoriteOrganizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FavoriteOrganizationTests.swift; sourceTree = "<group>"; };
+		FAV0B1C2D3E4F50617283943 /* FavoriteOrganization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = FavoriteOrganization.swift; path = "DB Connect/Models/FavoriteOrganization.swift"; sourceTree = "<group>"; };
 		FCAF3F217B56DE333183C94A /* SchemaAdmin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SchemaAdmin.swift; path = "DB Connect/Core/SchemaAdmin.swift"; sourceTree = "<group>"; };
+		LST00000000000000000001 /* MacLauncherState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MacLauncherState.swift; path = "DB Connect/Core/MacLauncherState.swift"; sourceTree = "<group>"; };
+		VLT00000000000000000011 /* VaultAuthentication.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VaultAuthentication.swift; path = "DB Connect/Core/VaultAuthentication.swift"; sourceTree = "<group>"; };
+		VLT00000000000000000012 /* VaultHTTPClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VaultHTTPClient.swift; path = "DB Connect/Core/VaultHTTPClient.swift"; sourceTree = "<group>"; };
+		VLT00000000000000000013 /* VaultTokenKeychainStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VaultTokenKeychainStore.swift; path = "DB Connect/Secrets/VaultTokenKeychainStore.swift"; sourceTree = "<group>"; };
+		VLT00000000000000000014 /* VaultAuthenticationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VaultAuthenticationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -155,7 +169,11 @@
 		2DBE717DBAAEC53B117A60E9 /* DB Connect Test Sources */ = {
 			isa = PBXGroup;
 			children = (
+				LST00000000000000000001 /* MacLauncherState.swift */,
 				2A7E7C4001F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift */,
+				VLT00000000000000000011 /* VaultAuthentication.swift */,
+				VLT00000000000000000012 /* VaultHTTPClient.swift */,
+				VLT00000000000000000013 /* VaultTokenKeychainStore.swift */,
 				2A7E7C4601F04E08A4D8B180 /* DataTransfer.swift */,
 				2A7E7C4401F04E08A4D8B180 /* MySQLAdministration.swift */,
 				2A7E7C4201F04E08A4D8B180 /* MySQLPrivileges.swift */,
@@ -180,6 +198,14 @@
 			name = "DB Connect Test Sources";
 			sourceTree = "<group>";
 		};
+		48268DC5306524BC0076FA35 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				FAV0B1C2D3E4F50617283943 /* FavoriteOrganization.swift */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		4893A07C300E5732006E4110 = {
 			isa = PBXGroup;
 			children = (
@@ -189,6 +215,7 @@
 				92BEF8C1032CDACC25382826 /* Frameworks */,
 				ADF2CD9CE1975D1E0BDE5B64 /* DB ConnectTests */,
 				2DBE717DBAAEC53B117A60E9 /* DB Connect Test Sources */,
+				48268DC5306524BC0076FA35 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -213,10 +240,12 @@
 		ADF2CD9CE1975D1E0BDE5B64 /* DB ConnectTests */ = {
 			isa = PBXGroup;
 			children = (
+				FAV0B1C2D3E4F50617283941 /* FavoriteOrganizationTests.swift */,
 				949291B46B48D649AE2EF9BF /* MutationBuilderTests.swift */,
 				CB0036D0C5F50ED9A489A930 /* PredicateBuilderTests.swift */,
 				6CE6244D154D9AE1A9FF5C1F /* SQLiteDriverTests.swift */,
 				53005BF02B9F4B480BB49EEE /* TestSupport.swift */,
+				VLT00000000000000000014 /* VaultAuthenticationTests.swift */,
 			);
 			path = "DB ConnectTests";
 			sourceTree = "<group>";
@@ -369,11 +398,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FAV0B1C2D3E4F50617283940 /* FavoriteOrganizationTests.swift in Sources */,
+				FAV0B1C2D3E4F50617283942 /* FavoriteOrganization.swift in Sources */,
+				LST00000000000000000002 /* MacLauncherState.swift in Sources */,
 				8020EB9EEDE9A0BF70397FE4 /* MutationBuilderTests.swift in Sources */,
 				B786928654AC56020E101991 /* PredicateBuilderTests.swift in Sources */,
 				0D698E84372EB2D17BED18C4 /* SQLiteDriverTests.swift in Sources */,
 				D9BBD4666C3D75135E4F34AE /* TestSupport.swift in Sources */,
+				VLT00000000000000000004 /* VaultAuthenticationTests.swift in Sources */,
 				2A7E7C4101F04E08A4D8B180 /* ConnectionRuntimeSecretResolver.swift in Sources */,
+				VLT00000000000000000001 /* VaultAuthentication.swift in Sources */,
+				VLT00000000000000000002 /* VaultHTTPClient.swift in Sources */,
+				VLT00000000000000000003 /* VaultTokenKeychainStore.swift in Sources */,
 				2A7E7C4701F04E08A4D8B180 /* DataTransfer.swift in Sources */,
 				2A7E7C4501F04E08A4D8B180 /* MySQLAdministration.swift in Sources */,
 				2A7E7C4301F04E08A4D8B180 /* MySQLPrivileges.swift in Sources */,
@@ -550,7 +586,7 @@
 				CODE_SIGN_ENTITLEMENTS = "DB Connect/DB Connect.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -569,7 +605,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2026.1;
+				MARKETING_VERSION = 2026.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -593,7 +629,7 @@
 				CODE_SIGN_ENTITLEMENTS = "DB Connect/DB Connect.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -612,7 +648,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2026.1;
+				MARKETING_VERSION = 2026.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -677,7 +713,7 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "DB Connect Widgets/DB Connect Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -701,7 +737,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 2026.1;
+				MARKETING_VERSION = 2026.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect.Widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -729,7 +765,7 @@
 				AUTOMATION_APPLE_EVENTS = NO;
 				CODE_SIGN_ENTITLEMENTS = "DB Connect Widgets/DB Connect Widgets.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 46D3VYP253;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -753,7 +789,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 2026.1;
+				MARKETING_VERSION = 2026.2;
 				PRODUCT_BUNDLE_IDENTIFIER = "de.holgerkrupp.DB-Connect.Widgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

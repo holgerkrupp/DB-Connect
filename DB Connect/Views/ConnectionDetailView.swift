@@ -34,6 +34,15 @@ struct ConnectionDetailView: View {
     let connection: Connection
     var onEditConnection: (() -> Void)? = nil
     var onDeleteConnection: (() -> Void)? = nil
+    /// Used by the macOS launcher for unsaved Quick Connect sessions. When nil, the normal
+    /// iCloud Keychain lookup remains the source of truth.
+    var runtimeSecret: Secret? = nil
+    /// Runtime config/credential provider used by a transient Vault Quick Connect. The provider
+    /// renews leases for reconnects; its leased password is never written to the model.
+    var runtimeConfig: ConnectionConfig? = nil
+    var runtimeCredentialProvider: VaultMySQLEphemeralCredentialProvider? = nil
+    var onCloseConnection: (() -> Void)? = nil
+    var onConnectionFailed: ((String) -> Void)? = nil
 
     @State private var session: (any DatabaseSession)?
     @State private var tables: [TableDescriptor] = []
@@ -55,6 +64,9 @@ struct ConnectionDetailView: View {
     @State private var mysqlAdminMessage: String?
     @State private var transferOperation: TransferOperation?
     @State private var isConnecting = false
+    /// Retained so leaving the detail or retrying cancels an in-flight Vault browser/lease
+    /// request as well as the database handshake.
+    @State private var connectionTask: Task<Void, Never>?
     @State private var isLoadingSchema = false
     @State private var showsSQLiteFileImporter = false
     @State private var showsSQLiteFolderImporter = false
@@ -241,7 +253,12 @@ struct ConnectionDetailView: View {
             await monitorConnection()
         }
         .onChange(of: navigation.request?.id) { _, _ in applyNavigationRequest() }
+        .onChange(of: connectionError) { _, newValue in
+            if let newValue { onConnectionFailed?(newValue) }
+        }
         .onDisappear {
+            connectionTask?.cancel()
+            connectionTask = nil
             connectionAttemptID = UUID()
             isConnecting = false
             isLoadingSchema = false
@@ -432,6 +449,12 @@ struct ConnectionDetailView: View {
             Button("Reconnect", systemImage: "bolt.horizontal.circle") {
                 reconnect()
             }
+            if let onCloseConnection {
+                Divider()
+                Button("Close Connection", systemImage: "xmark.circle") {
+                    onCloseConnection()
+                }
+            }
         }
         .help("Import, export, schema, and server actions")
     }
@@ -509,7 +532,8 @@ struct ConnectionDetailView: View {
     private func connectIfNeeded() {
         guard session == nil, !isConnecting else { return }
         isConnecting = true
-        Task { await connect() }
+        connectionTask?.cancel()
+        connectionTask = Task { await connect() }
     }
 
     /// Keep long-lived windows from holding on to a dead TCP connection. The task is cancelled
@@ -552,6 +576,12 @@ struct ConnectionDetailView: View {
     private var hasKnownCredentialsForAutomaticReconnect: Bool {
         guard let driver = DriverRegistry.driver(for: connection.driverID) else { return false }
         if !driver.capabilities.requiresCredentials { return true }
+        if runtimeCredentialProvider != nil {
+            return true
+        }
+        if let runtimeSecret {
+            return runtimeSecret.hasPersistedValue
+        }
         guard let storedSecret = try? KeychainSecretStore().secret(for: connection.id),
               storedSecret.hasPersistedValue else { return false }
         do {
@@ -571,6 +601,7 @@ struct ConnectionDetailView: View {
     }
 
     private func connect(overrideDatabase: String? = nil) async {
+        guard !Task.isCancelled else { return }
         let attemptID = UUID()
         connectionAttemptID = attemptID
         isConnecting = true
@@ -588,7 +619,7 @@ struct ConnectionDetailView: View {
         session = nil
         await previousSession?.close()
 
-        guard connectionAttemptID == attemptID else { return }
+        guard !Task.isCancelled, connectionAttemptID == attemptID else { return }
         guard let driver = DriverRegistry.driver(for: connection.driverID) else {
             connectionError = "Unknown driver “\(connection.driverID)”."
             return
@@ -618,12 +649,25 @@ struct ConnectionDetailView: View {
 
         var candidate: (any DatabaseSession)?
         do {
-            let storedSecret = try KeychainSecretStore().secret(for: connection.id)
+            let storedSecret: Secret?
+            if let runtimeSecret {
+                storedSecret = runtimeSecret
+            } else {
+                storedSecret = try KeychainSecretStore().secret(for: connection.id)
+            }
             restoreFileAccessIfNeeded()
 
-            var config = connection.config
+            var config = runtimeConfig ?? connection.config
             if let overrideDatabase { config.database = overrideDatabase }
-            let secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
+            let secret: Secret?
+            if let runtimeCredentialProvider {
+                let credentials = try await runtimeCredentialProvider.credentials()
+                let inputs = credentials.connectionInputs(for: config)
+                config = inputs.config
+                secret = inputs.secret
+            } else {
+                secret = try ConnectionRuntimeSecretResolver.resolve(config: config, secret: storedSecret)
+            }
 
             let newSession = try await driver.connect(config: config, secret: secret)
             candidate = newSession
@@ -703,6 +747,10 @@ struct ConnectionDetailView: View {
             schemaAdmin = resolvedSchemaAdmin
             isLoadingSchema = false
         } catch {
+            if Task.isCancelled || error is CancellationError || (error as? VaultError) == .cancelled {
+                await candidate?.close()
+                return
+            }
             if connectionAttemptID == attemptID {
                 session = nil
                 isLoadingSchema = false
@@ -797,11 +845,12 @@ struct ConnectionDetailView: View {
     /// Tear the session down and dial again — the manual counterpart to the Retry button that
     /// appears after a failure, for when a connection has gone stale rather than failed outright.
     private func reconnect() {
+        connectionTask?.cancel()
         connectionAttemptID = UUID()
         isLoadingSchema = false
         let closing = session
         session = nil
-        Task {
+        connectionTask = Task {
             await closing?.close()
             await connect()
         }

@@ -145,7 +145,7 @@ private struct DBConnectDocumentationArticle: View {
                 ])
             }
             DBConnectDocumentationSection("Credentials and sync") {
-                Text("Passwords, API keys, SSH secrets, and AWS access keys are stored separately in Keychain and are never written into the SwiftData connection record. Connection definitions sync through the user’s private iCloud database when available; secrets follow only when iCloud Keychain is enabled. SQLite files and their access remain device-specific.")
+                Text("Passwords, API keys, SSH secrets, and AWS access keys are stored separately in Keychain and are never written into the SwiftData connection record. Connection definitions are stored locally; optional sync is not required for the app to work. SQLite files and their access remain device-specific.")
             }
             DBConnectDocumentationSection("Advanced transport and auth") {
                 DBConnectDocumentationBullets([
@@ -311,11 +311,11 @@ private struct DBConnectDocumentationArticle: View {
 
     private var syncAndAutomation: some View {
         Group {
-            DBConnectDocumentationSection("What syncs") {
+            DBConnectDocumentationSection("Local data") {
                 DBConnectDocumentationBullets([
-                    "Connection definitions, saved queries, query favorites, and monitor definitions use the private iCloud database when it is available.",
-                    "Passwords and API keys use iCloud Keychain separately. They may arrive later than a connection definition or remain local when Keychain sync is disabled.",
-                    "Query result rows never sync. Monitor activations and sample histories remain specific to each device."
+                    "Connection definitions, saved queries, query favorites, and monitor definitions are stored in the app's local SwiftData database.",
+                    "Passwords and API keys are stored separately in Keychain and are never written into the SwiftData connection record.",
+                    "Query result rows, monitor activations, and sample histories remain specific to each device. Cloud sync is optional and is not required to use DB Connect."
                 ])
             }
             DBConnectDocumentationSection("Widgets") {
@@ -329,8 +329,8 @@ private struct DBConnectDocumentationArticle: View {
                 ])
             }
             DBConnectDocumentationNote(
-                systemImage: "icloud.slash",
-                text: "When iCloud is unavailable, DB Connect falls back to a local app database so you can keep working. Those local records do not retroactively become the CloudKit store during that launch."
+                systemImage: "internaldrive",
+                text: "DB Connect uses a local app database so it remains usable without an iCloud account, network access, or CloudKit availability."
             )
         }
     }
@@ -354,10 +354,9 @@ private struct DBConnectDocumentationArticle: View {
                     "MySQL process visibility and Flush Privileges also depend on server-wide PROCESS or RELOAD rights."
                 ])
             }
-            DBConnectDocumentationSection("Sync or automation looks incomplete") {
+            DBConnectDocumentationSection("Widgets or automation looks incomplete") {
                 DBConnectDocumentationBullets([
-                    "Confirm the device is signed into iCloud and that iCloud Drive and Keychain are enabled for the account.",
-                    "Open DB Connect once after adding or changing saved queries and monitors so widgets and App Intents can refresh their snapshot.",
+                    "Open DB Connect once after adding or changing saved queries and monitors so widgets and App Intents can refresh their local snapshot.",
                     "For monitors, confirm the device activation is On, credentials exist locally, notifications are permitted, and quiet hours or cooldown are not suppressing an alert."
                 ])
             }

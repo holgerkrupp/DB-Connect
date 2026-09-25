@@ -39,12 +39,12 @@ struct DBConnectOnboardingView: View {
             id: "connect",
             introducedIn: 1,
             title: "Connect to Your Database",
-            summary: "Keep SQLite, MySQL, PostgreSQL, and Supabase connections together without putting credentials in the synced database.",
+            summary: "Keep SQLite, MySQL, PostgreSQL, and Supabase connections together without putting credentials in the local database.",
             systemImage: "cylinder.split.1x2",
             tint: .blue,
             bullets: [
                 "Choose Add Connection, select a database type, and enter its file, server, or project details.",
-                "Passwords and API keys live in Keychain; connection definitions can follow you through iCloud.",
+                "Passwords and API keys live in Keychain; connection definitions stay on this Mac unless you export them.",
                 "Use read-only mode for an extra write barrier, and choose the TLS policy that matches your server."
             ]
         ),

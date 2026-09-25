@@ -166,7 +166,7 @@ struct MonitorMenuBarView: View {
         } set: { enabled in
             monitor.setEnabled(enabled, on: device, in: modelContext)
             try? modelContext.save()
-            WidgetSnapshotPublisher.publish(container: DB_ConnectApp.appModelContainer)
+            WidgetSnapshotPublisher.publish(container: modelContext.container)
             if enabled {
                 Task { await scheduler?.runDue() }
             }

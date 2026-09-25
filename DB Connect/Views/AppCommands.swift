@@ -73,11 +73,27 @@ struct BrowserActions {
     var pendingCount: Int
 }
 
+/// Actions exposed by the macOS connection-first launcher. Keeping these as focused values
+/// lets the menu bar reflect the current draft without persisting the draft or its secrets.
+struct LauncherActions {
+    var newFavorite: () -> Void
+    var focusSearch: () -> Void
+    var connect: () -> Void
+    var canConnect: Bool
+    var discardDraft: () -> Void
+    var saveFavorite: () -> Void
+    var canSaveFavorite: Bool
+    var editSelected: (() -> Void)?
+    var duplicateSelected: (() -> Void)?
+    var deleteSelected: (() -> Void)?
+}
+
 extension FocusedValues {
     @Entry var connectionListActions: ConnectionListActions?
     @Entry var connectionActions: ConnectionActions?
     @Entry var consoleActions: ConsoleActions?
     @Entry var browserActions: BrowserActions?
+    @Entry var launcherActions: LauncherActions?
 }
 
 /// The app's menu bar.
@@ -90,14 +106,23 @@ struct AppMenuCommands: Commands {
     @FocusedValue(\.connectionActions) private var connection
     @FocusedValue(\.consoleActions) private var console
     @FocusedValue(\.browserActions) private var browser
+    @FocusedValue(\.launcherActions) private var launcher
 
     var body: some Commands {
         // MARK: File
 
         CommandGroup(replacing: .newItem) {
-            Button("New Connection…") { list?.newConnection() }
+            Button("New Connection…") {
+                if let list { list.newConnection() } else { launcher?.newFavorite() }
+            }
                 .keyboardShortcut("n", modifiers: .command)
-                .disabled(list == nil)
+                .disabled(list == nil && launcher == nil)
+
+            #if os(macOS)
+            Button("Find Favorites") { launcher?.focusSearch() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(launcher == nil)
+            #endif
 
             Button("New Table…") { connection?.newTable?() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
@@ -119,6 +144,22 @@ struct AppMenuCommands: Commands {
                 .keyboardShortcut("d", modifiers: .command)
                 .disabled(list?.duplicateSelected == nil)
 
+            #if os(macOS)
+            Button("Edit Favorite…") { launcher?.editSelected?() }
+                .disabled(launcher?.editSelected == nil)
+
+            Button("Duplicate Favorite") { launcher?.duplicateSelected?() }
+                .disabled(launcher?.duplicateSelected == nil)
+
+            Button("Delete Favorite…", role: .destructive) { launcher?.deleteSelected?() }
+                .keyboardShortcut(.delete, modifiers: [])
+                .disabled(launcher?.deleteSelected == nil)
+
+            Button("Discard Draft") { launcher?.discardDraft() }
+                .keyboardShortcut(.escape)
+                .disabled(launcher == nil)
+            #endif
+
             Button("Delete Connection…") { list?.deleteSelected?() }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(list?.deleteSelected == nil)
@@ -129,7 +170,13 @@ struct AppMenuCommands: Commands {
             // system group and leave two separators stacked against each other.
             Button("Save Query…") { console?.saveQuery() }
                 .keyboardShortcut("s", modifiers: .command)
-                .disabled(console?.canSave != true)
+                .disabled(launcher != nil || console?.canSave != true)
+
+            #if os(macOS)
+            Button("Save Favorite") { launcher?.saveFavorite() }
+                .keyboardShortcut("s", modifiers: .command)
+                .disabled(launcher?.canSaveFavorite != true)
+            #endif
 
             Divider()
 
@@ -196,6 +243,18 @@ struct AppMenuCommands: Commands {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
                 .disabled(browser?.reviewChanges == nil)
         }
+
+        #if os(macOS)
+        CommandMenu("Connection") {
+            Button("Connect") { launcher?.connect() }
+                .keyboardShortcut(.return)
+                .disabled(launcher?.canConnect != true)
+
+            Button("Discard Draft") { launcher?.discardDraft() }
+                .keyboardShortcut(.escape)
+                .disabled(launcher == nil)
+        }
+        #endif
 
         // MARK: Database
 
